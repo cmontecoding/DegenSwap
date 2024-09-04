@@ -19,6 +19,9 @@ contract DegenSwapHook is BaseHook, ERC20 {
 	using CurrencyLibrary for Currency;
     using BalanceDeltaLibrary for BalanceDelta;
 
+	// Keeping track of user => escrow balances
+	mapping(address => uint256) public escrowBalances;
+
 	// Initialize BaseHook and ERC20
     constructor(
         IPoolManager _manager,
@@ -60,6 +63,19 @@ contract DegenSwapHook is BaseHook, ERC20 {
         IPoolManager.SwapParams calldata swapParams,
         bytes calldata hookData
     ) external override onlyByPoolManager returns (bytes4, BeforeSwapDelta, uint24) {
-        
+        // if the user has escrow and a pending swap then do...
 	}
+
+    // todo maybe make this internal and then call it from a router contract?
+    function escrow(address user, uint256 amount) external {
+        // todo transfer the currency from the user to this contract (the input of the swap)
+
+        escrowBalances[user] += amount;
+        // maybe we need to store escrow into individual swaps? ie: escrow[user][swapId] += amount;
+
+        // maybe mint a 6909 to user?
+    }
+
+    //todo the math/additional amm
+
 }
