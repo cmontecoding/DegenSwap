@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {BaseHook} from "v4-periphery/src/base/hooks/BaseHook.sol";
+import {BaseHook, BeforeSwapDelta} from "v4-periphery/src/base/hooks/BaseHook.sol";
 import {ERC20} from "solmate/src/tokens/ERC20.sol";
 
 import {CurrencyLibrary, Currency} from "v4-core/types/Currency.sol";
@@ -18,12 +18,6 @@ contract DegenSwapHook is BaseHook, ERC20 {
 	// data types 
 	using CurrencyLibrary for Currency;
     using BalanceDeltaLibrary for BalanceDelta;
-
-	// Keeping track of user => referrer
-	mapping(address => address) public referredBy;
-
-	// Amount of points someone gets for referring someone else
-    uint256 public constant POINTS_FOR_REFERRAL = 500 * 10 ** 18;
 
 	// Initialize BaseHook and ERC20
     constructor(
@@ -46,10 +40,10 @@ contract DegenSwapHook is BaseHook, ERC20 {
                 afterInitialize: false,
                 beforeAddLiquidity: false,
                 beforeRemoveLiquidity: false,
-                afterAddLiquidity: true,
+                afterAddLiquidity: false,
                 afterRemoveLiquidity: false,
-                beforeSwap: false,
-                afterSwap: true,
+                beforeSwap: true,
+                afterSwap: false,
                 beforeDonate: false,
                 afterDonate: false,
                 beforeSwapReturnDelta: false,
@@ -59,27 +53,13 @@ contract DegenSwapHook is BaseHook, ERC20 {
             });
     }
 
-	// Stub implementation of `afterSwap`
-	function afterSwap(
+	// Stub implementation of `beforeSwap`
+	function beforeSwap(
         address,
         PoolKey calldata key,
         IPoolManager.SwapParams calldata swapParams,
-        BalanceDelta delta,
         bytes calldata hookData
-    ) external override onlyByPoolManager returns (bytes4, int128) {
-		// We'll add more code here shortly
-		return (this.afterSwap.selector, 0);
+    ) external override onlyByPoolManager returns (bytes4, BeforeSwapDelta, uint24) {
+        
 	}
-
-	// Stub implementation for `afterAddLiquidity`
-	function afterAddLiquidity(
-        address,
-        PoolKey calldata key,
-        IPoolManager.ModifyLiquidityParams calldata,
-        BalanceDelta delta,
-        bytes calldata hookData
-    ) external override onlyByPoolManager returns (bytes4, BalanceDelta) {
-		// We'll add more code here shortly
-        return (this.afterAddLiquidity.selector, delta);
-    }
 }
