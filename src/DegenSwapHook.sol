@@ -12,7 +12,9 @@ import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 
 import {Hooks} from "v4-core/libraries/Hooks.sol";
 
-contract DegenSwapHook is BaseHook, ERC20 {
+import {VRFV2PlusWrapperConsumerBase} from "chainlink/contracts/src/v0.8/vrf/dev/VRFV2PlusWrapperConsumerBase.sol";
+
+contract DegenSwapHook is BaseHook, ERC20, VRFV2PlusWrapperConsumerBase {
 	// Use CurrencyLibrary and BalanceDeltaLibrary
 	// to add some helper functions over the Currency and BalanceDelta
 	// data types 
@@ -22,12 +24,13 @@ contract DegenSwapHook is BaseHook, ERC20 {
 	// Keeping track of user => escrow balances
 	mapping(address => uint256) public escrowBalances;
 
-	// Initialize BaseHook and ERC20
+	// Initialize BaseHook, ERC20 and VRFV2PlusWrapperConsumerBase
     constructor(
         IPoolManager _manager,
         string memory _name,
-        string memory _symbol
-    ) BaseHook(_manager) ERC20(_name, _symbol, 18) {}
+        string memory _symbol,
+        address _vrfV2PlusWrapper
+    ) BaseHook(_manager) ERC20(_name, _symbol, 18) VRFV2PlusWrapperConsumerBase(_vrfV2PlusWrapper) {}
 
 	// Set up hook permissions to return `true`
 	// for the two hook functions we are using
@@ -77,5 +80,25 @@ contract DegenSwapHook is BaseHook, ERC20 {
     }
 
     //todo the math/additional amm
+
+    /**
+    * @notice fulfillRandomWords handles the VRF V2 wrapper response.
+    *
+    * @param _requestId is the VRF V2 request ID.
+    * @param _randomWords is the randomness result.
+    */
+    function fulfillRandomWords(uint256 _requestId, uint256[] memory _randomWords) internal override {
+        // todo use the random words to determine the outcome of the swap
+    }
+
+    // temp public function to test the random number generation
+    function getRandomness(
+        uint32 _callbackGasLimit,
+        uint16 _requestConfirmations,
+        uint32 _numWords,
+        bytes memory extraArgs
+    ) public returns (uint256 requestId, uint256 reqPrice) {
+        (requestId, reqPrice) = requestRandomness(_callbackGasLimit, _requestConfirmations, _numWords, extraArgs);
+    }
 
 }
