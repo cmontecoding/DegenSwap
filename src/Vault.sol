@@ -43,7 +43,8 @@ contract Vault is IVault, Ownable2Step {
     }
 
     function setFeeAddress(address newFeeAddress) external onlyOwner {
-        require(newFeeAddress != address(0), InvalidFeeAddress(newFeeAddress));
+        if (fee > 0) require(newFeeAddress != address(0), InvalidFeeAddress(newFeeAddress));
+
         address oldFeeAddress = feeAddress;
         feeAddress = newFeeAddress;
 
@@ -93,10 +94,12 @@ contract Vault is IVault, Ownable2Step {
             totalSupply[token] -= amount;
         }
 
+        delete depositAt[msg.sender][token];
+
         IERC20(token).safeTransfer(msg.sender, amountPlusRewards - f);
 
         // Transfer fee to a designated account
-        IERC20(token).safeTransfer(feeAddress, f);
+        if (f > 0) IERC20(token).safeTransfer(feeAddress, f);
 
         emit RemovedLiquidity(msg.sender, token, amount);
     }
