@@ -14,14 +14,20 @@ contract Vault is IVault, Ownable2Step {
 
     uint256 public constant MAX_FEE = 10_000; // in `BPS`
 
-    // (user => (pool => (token => amount))) balances;
+    // (pool => (user => (token => amount))) balances;
     mapping(address user => mapping(address token => uint256 amount)) public balances;
 
-    // (pool => (token => amount)) balances;
+    // (pool => (token => amount)) totalSupply;
     mapping(address token => uint256 amount) public totalSupply;
 
-    // (user => (pool => (token => timestamp))) depositAt;
+    // (pool => (user => (token => timestamp))) depositAt;
     mapping(address user => mapping(address token => uint256 timestamp)) public depositAt;
+
+    // (pool => (token => totalRewardPerToken)) totalRewardPerToken;
+    mapping(address token => uint256 totalRewardPerToken) totalRewardPerToken;
+
+    // (pool => (user => (token => userRewardPerToken))) userRewardPerToken;
+    mapping(address user => mapping(address token => uint256 userRewardPerToken)) userRewardPerToken;
 
     uint256 public fee; // in `BPS`
     address public feeAddress;
@@ -88,6 +94,12 @@ contract Vault is IVault, Ownable2Step {
 
         // Calculate the sum of the withdrawn `amount` and accuumulated rewards
         uint256 amountPlusRewards = amount.mulDiv(actualTotalSupply, totalSupply[token]);
+
+        /*
+        uint256 balance = balances[msg.sender][token];
+        uint256 rewardPerToken = userRewardPerToken[msg.sender][token];
+        uint256 amountPlusUserReward = balance * rewardPerToken;
+        */
 
         balances[msg.sender][token] -= amount;
         unchecked {
