@@ -21,8 +21,11 @@ contract DegenSwapHook is BaseHook, ERC20, VRFV2PlusWrapperConsumerBase {
 	using CurrencyLibrary for Currency;
     using BalanceDeltaLibrary for BalanceDelta;
 
-	// Keeping track of user => escrow balances
-	mapping(address => uint256) public escrowBalances;
+    mapping(uint256 => uint256) public requestIdToBinaryResult;
+    mapping(uint256 => bool) public requestIdToBinaryResultFulfilled;
+
+    event RequestIdFulfilled(uint256 requestId, uint256 result);
+    event Claimed(uint256 requestId);
 
 	// Initialize BaseHook, ERC20 and VRFV2PlusWrapperConsumerBase
     constructor(
@@ -67,19 +70,17 @@ contract DegenSwapHook is BaseHook, ERC20, VRFV2PlusWrapperConsumerBase {
         bytes calldata hookData
     ) external override onlyByPoolManager returns (bytes4, BeforeSwapDelta, uint24) {
         // if the user has escrow and a pending swap then do...
-	}
-
-    // todo maybe make this internal and then call it from a router contract?
-    function escrow(address user, uint256 amount) external {
-        // todo transfer the currency from the user to this contract (the input of the swap)
-
-        escrowBalances[user] += amount;
-        // maybe we need to store escrow into individual swaps? ie: escrow[user][swapId] += amount;
 
         // maybe mint a 6909 to user?
-    }
 
-    //todo the math/additional amm
+        // do the underlying swap
+
+        // take fee
+
+        // get random number
+	}
+
+    // maybe split up half the logic to after swap?
 
     /**
     * @notice fulfillRandomWords handles the VRF V2 wrapper response.
@@ -88,7 +89,13 @@ contract DegenSwapHook is BaseHook, ERC20, VRFV2PlusWrapperConsumerBase {
     * @param _randomWords is the randomness result.
     */
     function fulfillRandomWords(uint256 _requestId, uint256[] memory _randomWords) internal override {
-        // todo use the random words to determine the outcome of the swap
+        /// @dev this assumes only one random word was requested
+        uint256 zeroOrOne = _randomWords[0] % 2;
+        requestIdToBinaryResult[_requestId] = zeroOrOne;
+        requestIdToBinaryResultFulfilled[_requestId] = true;
+        emit RequestIdFulfilled(_requestId, zeroOrOne);
+
+        // todo make sure this function can never revert, maybe move all extra logic to _claim function
     }
 
     // temp public function to test the random number generation
@@ -100,5 +107,25 @@ contract DegenSwapHook is BaseHook, ERC20, VRFV2PlusWrapperConsumerBase {
     ) public returns (uint256 requestId, uint256 reqPrice) {
         (requestId, reqPrice) = requestRandomness(_callbackGasLimit, _requestConfirmations, _numWords, extraArgs);
     }
+
+    function claim(uint256 _requestId) public {
+        // todo somehow check this is their stuff, 6909?
+
+        require(requestIdToBinaryResultFulfilled[_requestId] == true, "DegenSwapHook: result not ready");
+        _claim(_requestId);
+        emit Claimed(_requestId);
+    }
+
+    function _claim(uint256 _requestId) internal {
+        uint256 result = requestIdToBinaryResult[_requestId];
+        if (result == 0) {
+            // they lost, transfer their remaining balance to them
+        } else {
+            // they won, transfer their winnings to them
+        }
+    }
+
+    //todo the math/rebalancing
+
 
 }
