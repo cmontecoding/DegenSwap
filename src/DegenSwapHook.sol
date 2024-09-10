@@ -12,9 +12,10 @@ import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 
 import {Hooks} from "v4-core/libraries/Hooks.sol";
 
-import {VRFV2PlusWrapperConsumerBase} from "chainlink/contracts/src/v0.8/vrf/dev/VRFV2PlusWrapperConsumerBase.sol";
+import {VRFConsumerBaseV2Plus} from "chainlink/contracts/src/v0.8/vrf/dev/VRFConsumerBaseV2Plus.sol";
+import {VRFV2PlusClient} from "chainlink/contracts/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";
 
-contract DegenSwapHook is BaseHook, ERC20, VRFV2PlusWrapperConsumerBase {
+contract DegenSwapHook is BaseHook, ERC20, VRFConsumerBaseV2Plus {
 	// Use CurrencyLibrary and BalanceDeltaLibrary
 	// to add some helper functions over the Currency and BalanceDelta
 	// data types 
@@ -27,13 +28,26 @@ contract DegenSwapHook is BaseHook, ERC20, VRFV2PlusWrapperConsumerBase {
     event RequestIdFulfilled(uint256 requestId, uint256 result);
     event Claimed(uint256 requestId);
 
+    // Your subscription ID.
+    uint256 public s_subscriptionId;
+
+    // The gas lane to use, which specifies the maximum gas price to bump to.
+    // For a list of available gas lanes on each network,
+    // see https://docs.chain.link/vrf/v2-5/supported-networks#configurations
+    bytes32 public s_keyHash;
+
 	// Initialize BaseHook, ERC20 and VRFV2PlusWrapperConsumerBase
     constructor(
         IPoolManager _manager,
         string memory _name,
         string memory _symbol,
-        address _vrfV2PlusWrapper
-    ) BaseHook(_manager) ERC20(_name, _symbol, 18) VRFV2PlusWrapperConsumerBase(_vrfV2PlusWrapper) {}
+        address _vrfCoordinator,
+        uint256 _subscriptionId,
+        bytes32 _keyHash
+    ) BaseHook(_manager) ERC20(_name, _symbol, 18) VRFConsumerBaseV2Plus(_vrfCoordinator) {
+        s_subscriptionId = _subscriptionId;
+        s_keyHash = _keyHash;
+    }
 
 	// Set up hook permissions to return `true`
 	// for the two hook functions we are using
@@ -88,7 +102,7 @@ contract DegenSwapHook is BaseHook, ERC20, VRFV2PlusWrapperConsumerBase {
     * @param _requestId is the VRF V2 request ID.
     * @param _randomWords is the randomness result.
     */
-    function fulfillRandomWords(uint256 _requestId, uint256[] memory _randomWords) internal override {
+    function fulfillRandomWords(uint256 _requestId, uint256[] calldata _randomWords) internal override {
         /// @dev this assumes only one random word was requested
         uint256 zeroOrOne = _randomWords[0] % 2;
         requestIdToBinaryResult[_requestId] = zeroOrOne;
@@ -105,7 +119,17 @@ contract DegenSwapHook is BaseHook, ERC20, VRFV2PlusWrapperConsumerBase {
         uint32 _numWords,
         bytes memory extraArgs
     ) public returns (uint256 requestId, uint256 reqPrice) {
-        (requestId, reqPrice) = requestRandomness(_callbackGasLimit, _requestConfirmations, _numWords, extraArgs);
+        requestId = s_vrfCoordinator.requestRandomWords(
+            VRFV2PlusClient.RandomWordsRequest({
+                keyHash: s_keyHash,
+                subId: s_subscriptionId,
+                requestConfirmations: _requestConfirmations,
+                callbackGasLimit: _callbackGasLimit,
+                numWords: _numWords,
+                // Set nativePayment to true to pay for VRF requests with ETH instead of LINK
+                extraArgs: VRFV2PlusClient._argsToBytes(VRFV2PlusClient.ExtraArgsV1({nativePayment: true}))
+            })
+        );
     }
 
     function claim(uint256 _requestId) public {
