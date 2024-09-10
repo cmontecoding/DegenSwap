@@ -33,9 +33,13 @@ contract TestPointsHook is Test, Deployers {
 
     DegenSwapHook hook;
     VRFCoordinatorV2_5Mock vrfCoordinator;
+    uint256 subId;
+    bytes32 keyHash = "";
 
     function setUp() public {
+        // Deploy VRFCoordinator
         vrfCoordinator = new VRFCoordinatorV2_5Mock(100, 100, 100);
+        subId = vrfCoordinator.createSubscription();
 
         // Step 1 + 2
         // Deploy PoolManager and Router contracts
@@ -53,12 +57,18 @@ contract TestPointsHook is Test, Deployers {
         uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG);
         deployCodeTo(
             "DegenSwapHook.sol",
-            abi.encode(manager, "Degen Swap Token", "DST", address(0)),
+            abi.encode(manager, "Degen Swap Token", "DST", address(vrfCoordinator), subId, keyHash),
             address(flags)
         );
 
         // Deploy our hook
         hook = DegenSwapHook(address(flags));
+
+        // Add the hook as a consumer of the subscription
+        ( , , , address subOwner, ) = vrfCoordinator.getSubscription(subId);
+        require (subOwner == address(this), "Subscription owner is not this contract");
+        vrfCoordinator.addConsumer(subId, address(hook));
+        assertEq(vrfCoordinator.consumerIsAdded(subId, address(hook)), true);
 
         // Approve our TOKEN for spending on the swap router and modify liquidity router
         // These variables are coming from the `Deployers` contract
@@ -77,6 +87,13 @@ contract TestPointsHook is Test, Deployers {
     }
 
     function testRequestRandomness() public {
-        // hook.getRandomness(0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        (uint256 requestId, ) = hook.getRandomness(400000, 3, 1, bytes(""));
+        uint256[] memory randomWords = new uint256[](1);
+        randomWords[0] = 1;
+        vrfCoordinator.fundSubscriptionWithNative{value: 1000 ether}(subId);
+        vrfCoordinator.fulfillRandomWordsWithOverride(requestId, address(hook), randomWords);
+
+        assertEq(hook.requestIdToBinaryResultFulfilled(requestId), true);
+        assertEq(hook.requestIdToBinaryResult(requestId), 1);
     }
 }
