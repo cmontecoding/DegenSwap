@@ -2,7 +2,6 @@
 pragma solidity 0.8.26;
 
 import {BaseHook, BeforeSwapDelta} from "v4-periphery/src/base/hooks/BaseHook.sol";
-import {ERC20} from "solmate/src/tokens/ERC20.sol";
 
 import {CurrencyLibrary, Currency} from "v4-core/types/Currency.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
@@ -15,7 +14,7 @@ import {Hooks} from "v4-core/libraries/Hooks.sol";
 import {VRFConsumerBaseV2Plus} from "chainlink/contracts/src/v0.8/vrf/dev/VRFConsumerBaseV2Plus.sol";
 import {VRFV2PlusClient} from "chainlink/contracts/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";
 
-contract DegenSwapHook is BaseHook, ERC20, VRFConsumerBaseV2Plus {
+contract DegenSwapHook is BaseHook, VRFConsumerBaseV2Plus {
     // Use CurrencyLibrary and BalanceDeltaLibrary
     // to add some helper functions over the Currency and BalanceDelta
     // data types
@@ -36,21 +35,30 @@ contract DegenSwapHook is BaseHook, ERC20, VRFConsumerBaseV2Plus {
     // see https://docs.chain.link/vrf/v2-5/supported-networks#configurations
     bytes32 public s_keyHash;
 
-    // Initialize BaseHook, ERC20 and VRFV2PlusWrapperConsumerBase
+    uint32 public randomnessNumWords;
+    uint32 public randomnessCallbackGasLimit;
+    uint16 public randomnessRequestConfirmations;
+
+    // Initialize BaseHook and VRFV2PlusWrapperConsumerBase
     constructor(
         IPoolManager _manager,
         string memory _name,
         string memory _symbol,
         address _vrfCoordinator,
         uint256 _subscriptionId,
-        bytes32 _keyHash
+        bytes32 _keyHash,
+        uint32 _randomnessNumWords,
+        uint32 _randomnessCallbackGasLimit,
+        uint16 _randomnessRequestConfirmations
     )
         BaseHook(_manager)
-        ERC20(_name, _symbol, 18)
         VRFConsumerBaseV2Plus(_vrfCoordinator)
     {
         s_subscriptionId = _subscriptionId;
         s_keyHash = _keyHash;
+        randomnessNumWords = _randomnessNumWords;
+        randomnessCallbackGasLimit = _randomnessCallbackGasLimit;
+        randomnessRequestConfirmations = _randomnessRequestConfirmations;
     }
 
     // Set up hook permissions to return `true`
@@ -69,37 +77,47 @@ contract DegenSwapHook is BaseHook, ERC20, VRFConsumerBaseV2Plus {
                 beforeRemoveLiquidity: false,
                 afterAddLiquidity: false,
                 afterRemoveLiquidity: false,
-                beforeSwap: true,
-                afterSwap: false,
+                beforeSwap: false,
+                afterSwap: true,
                 beforeDonate: false,
                 afterDonate: false,
                 beforeSwapReturnDelta: false,
-                afterSwapReturnDelta: false,
+                afterSwapReturnDelta: true,
                 afterAddLiquidityReturnDelta: false,
                 afterRemoveLiquidityReturnDelta: false
             });
     }
 
-    // Stub implementation of `beforeSwap`
-    function beforeSwap(
+    function afterSwap(
         address,
         PoolKey calldata key,
-        IPoolManager.SwapParams calldata swapParams,
-        bytes calldata hookData
-    )
-        external
-        override
-        onlyByPoolManager
-        returns (bytes4, BeforeSwapDelta, uint24)
-    {
-        // if the user has escrow and a pending swap then do...
-        // maybe mint a 6909 to user?
-        // get the % they want to gamble
-        // take fee
-        // get random number
-    }
+        IPoolManager.SwapParams calldata params,
+        BalanceDelta delta,
+        bytes calldata
+    ) external override returns (bytes4, int128) {
+        int128 hookDeltaUnspecified = params.zeroForOne
+            ? delta.amount1()
+            : delta.amount0();
 
-    // maybe split up half the logic to after swap?
+        Currency currency = params.zeroForOne ? key.currency1 : key.currency0;
+
+        poolManager.take(
+            currency,
+            address(this),
+            uint256(int256(hookDeltaUnspecified))
+        );
+
+        // todo maybe mint a 6909 claim token to user?
+
+        // todo get the % they want to gamble
+
+        // todo take fee
+
+        /// @dev get random number
+        (uint256 requestId, uint256 reqPrice) = _getRandomness();
+
+        return (this.afterSwap.selector, hookDeltaUnspecified);
+    }
 
     /**
      * @notice fulfillRandomWords handles the VRF V2 wrapper response.
@@ -120,23 +138,24 @@ contract DegenSwapHook is BaseHook, ERC20, VRFConsumerBaseV2Plus {
         // todo make sure this function can never revert, maybe move all extra logic to _claim function
     }
 
-    // temp public function to test the random number generation
-    function getRandomness(
-        uint32 _callbackGasLimit,
-        uint16 _requestConfirmations,
-        uint32 _numWords,
-        bytes memory extraArgs
-    ) public returns (uint256 requestId, uint256 reqPrice) {
+    /**
+     * @notice _getRandomness requests randomness from the VRF V2 coordinator.
+     *
+     * @return requestId is the VRF V2 request ID.
+     * @return reqPrice is the VRF V2 request price.
+     */
+    function _getRandomness() internal returns (uint256 requestId, uint256 reqPrice) { 
+        //todo add the second return value
         requestId = s_vrfCoordinator.requestRandomWords(
             VRFV2PlusClient.RandomWordsRequest({
                 keyHash: s_keyHash,
                 subId: s_subscriptionId,
-                requestConfirmations: _requestConfirmations,
-                callbackGasLimit: _callbackGasLimit,
-                numWords: _numWords,
+                requestConfirmations: randomnessRequestConfirmations,
+                callbackGasLimit: randomnessCallbackGasLimit,
+                numWords: randomnessNumWords,
                 // Set nativePayment to true to pay for VRF requests with ETH instead of LINK
                 extraArgs: VRFV2PlusClient._argsToBytes(
-                    VRFV2PlusClient.ExtraArgsV1({nativePayment: true})
+                    VRFV2PlusClient.ExtraArgsV1({nativePayment: true}) //todo maybe make this adjustable, currently hardcoded to eth
                 )
             })
         );
@@ -144,6 +163,7 @@ contract DegenSwapHook is BaseHook, ERC20, VRFConsumerBaseV2Plus {
 
     function claim(uint256 _requestId) public {
         // todo somehow check this is their stuff, 6909?
+        // todo make sure they cant double claim
 
         require(
             requestIdToBinaryResultFulfilled[_requestId] == true,
