@@ -16,10 +16,10 @@ import {VRFConsumerBaseV2Plus} from "chainlink/contracts/src/v0.8/vrf/dev/VRFCon
 import {VRFV2PlusClient} from "chainlink/contracts/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";
 
 contract DegenSwapHook is BaseHook, ERC20, VRFConsumerBaseV2Plus {
-	// Use CurrencyLibrary and BalanceDeltaLibrary
-	// to add some helper functions over the Currency and BalanceDelta
-	// data types 
-	using CurrencyLibrary for Currency;
+    // Use CurrencyLibrary and BalanceDeltaLibrary
+    // to add some helper functions over the Currency and BalanceDelta
+    // data types
+    using CurrencyLibrary for Currency;
     using BalanceDeltaLibrary for BalanceDelta;
 
     mapping(uint256 => uint256) public requestIdToBinaryResult;
@@ -36,7 +36,7 @@ contract DegenSwapHook is BaseHook, ERC20, VRFConsumerBaseV2Plus {
     // see https://docs.chain.link/vrf/v2-5/supported-networks#configurations
     bytes32 public s_keyHash;
 
-	// Initialize BaseHook, ERC20 and VRFV2PlusWrapperConsumerBase
+    // Initialize BaseHook, ERC20 and VRFV2PlusWrapperConsumerBase
     constructor(
         IPoolManager _manager,
         string memory _name,
@@ -44,13 +44,17 @@ contract DegenSwapHook is BaseHook, ERC20, VRFConsumerBaseV2Plus {
         address _vrfCoordinator,
         uint256 _subscriptionId,
         bytes32 _keyHash
-    ) BaseHook(_manager) ERC20(_name, _symbol, 18) VRFConsumerBaseV2Plus(_vrfCoordinator) {
+    )
+        BaseHook(_manager)
+        ERC20(_name, _symbol, 18)
+        VRFConsumerBaseV2Plus(_vrfCoordinator)
+    {
         s_subscriptionId = _subscriptionId;
         s_keyHash = _keyHash;
     }
 
-	// Set up hook permissions to return `true`
-	// for the two hook functions we are using
+    // Set up hook permissions to return `true`
+    // for the two hook functions we are using
     function getHookPermissions()
         public
         pure
@@ -76,33 +80,37 @@ contract DegenSwapHook is BaseHook, ERC20, VRFConsumerBaseV2Plus {
             });
     }
 
-	// Stub implementation of `beforeSwap`
-	function beforeSwap(
+    // Stub implementation of `beforeSwap`
+    function beforeSwap(
         address,
         PoolKey calldata key,
         IPoolManager.SwapParams calldata swapParams,
         bytes calldata hookData
-    ) external override onlyByPoolManager returns (bytes4, BeforeSwapDelta, uint24) {
+    )
+        external
+        override
+        onlyByPoolManager
+        returns (bytes4, BeforeSwapDelta, uint24)
+    {
         // if the user has escrow and a pending swap then do...
-
         // maybe mint a 6909 to user?
-
-        // do the underlying swap
-
+        // get the % they want to gamble
         // take fee
-
         // get random number
-	}
+    }
 
     // maybe split up half the logic to after swap?
 
     /**
-    * @notice fulfillRandomWords handles the VRF V2 wrapper response.
-    *
-    * @param _requestId is the VRF V2 request ID.
-    * @param _randomWords is the randomness result.
-    */
-    function fulfillRandomWords(uint256 _requestId, uint256[] calldata _randomWords) internal override {
+     * @notice fulfillRandomWords handles the VRF V2 wrapper response.
+     *
+     * @param _requestId is the VRF V2 request ID.
+     * @param _randomWords is the randomness result.
+     */
+    function fulfillRandomWords(
+        uint256 _requestId,
+        uint256[] calldata _randomWords
+    ) internal override {
         /// @dev this assumes only one random word was requested
         uint256 zeroOrOne = _randomWords[0] % 2;
         requestIdToBinaryResult[_requestId] = zeroOrOne;
@@ -127,7 +135,9 @@ contract DegenSwapHook is BaseHook, ERC20, VRFConsumerBaseV2Plus {
                 callbackGasLimit: _callbackGasLimit,
                 numWords: _numWords,
                 // Set nativePayment to true to pay for VRF requests with ETH instead of LINK
-                extraArgs: VRFV2PlusClient._argsToBytes(VRFV2PlusClient.ExtraArgsV1({nativePayment: true}))
+                extraArgs: VRFV2PlusClient._argsToBytes(
+                    VRFV2PlusClient.ExtraArgsV1({nativePayment: true})
+                )
             })
         );
     }
@@ -135,7 +145,10 @@ contract DegenSwapHook is BaseHook, ERC20, VRFConsumerBaseV2Plus {
     function claim(uint256 _requestId) public {
         // todo somehow check this is their stuff, 6909?
 
-        require(requestIdToBinaryResultFulfilled[_requestId] == true, "DegenSwapHook: result not ready");
+        require(
+            requestIdToBinaryResultFulfilled[_requestId] == true,
+            "DegenSwapHook: result not ready"
+        );
         _claim(_requestId);
         emit Claimed(_requestId);
     }
@@ -150,6 +163,4 @@ contract DegenSwapHook is BaseHook, ERC20, VRFConsumerBaseV2Plus {
     }
 
     //todo the math/rebalancing
-
-
 }
