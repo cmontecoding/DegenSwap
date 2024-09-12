@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {BaseHook, BeforeSwapDelta} from "v4-periphery/src/base/hooks/BaseHook.sol";
+import {ERC6909} from "v4-core/ERC6909.sol";
 
 import {CurrencyLibrary, Currency} from "v4-core/types/Currency.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
@@ -14,7 +15,7 @@ import {Hooks} from "v4-core/libraries/Hooks.sol";
 import {VRFConsumerBaseV2Plus} from "chainlink/contracts/src/v0.8/vrf/dev/VRFConsumerBaseV2Plus.sol";
 import {VRFV2PlusClient} from "chainlink/contracts/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";
 
-contract DegenSwapHook is BaseHook, VRFConsumerBaseV2Plus {
+contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
     // Use CurrencyLibrary and BalanceDeltaLibrary
     // to add some helper functions over the Currency and BalanceDelta
     // data types
@@ -23,6 +24,7 @@ contract DegenSwapHook is BaseHook, VRFConsumerBaseV2Plus {
 
     mapping(uint256 => uint256) public requestIdToBinaryResult;
     mapping(uint256 => bool) public requestIdToBinaryResultFulfilled;
+    mapping(uint256 => bool) public requestIdToBinaryResultClaimed; //todo maybe combine this and the above into an enum. or all 3 into struct
 
     event RequestIdFulfilled(uint256 requestId, uint256 result);
     event Claimed(uint256 requestId);
@@ -105,15 +107,11 @@ contract DegenSwapHook is BaseHook, VRFConsumerBaseV2Plus {
             uint256(int256(hookDeltaUnspecified))
         );
 
-        // todo maybe mint a 6909 claim token to user?
-
-        // todo get the % they want to gamble
-
-        // todo take fee
-
         /// @dev get random number
         (uint256 requestId, uint256 reqPrice) = _getRandomness();
-        //todo emit event RandomnessRequested with the request id and this swap data
+
+        /// @dev mint 6909 claim token
+        _mint(msg.sender, currency.toId(), uint256(hookDeltaUnspecified));
 
         return (this.afterSwap.selector, hookDeltaUnspecified);
     }
@@ -132,8 +130,6 @@ contract DegenSwapHook is BaseHook, VRFConsumerBaseV2Plus {
         uint256 zeroOrOne = _randomWords[0] % 2;
         requestIdToBinaryResult[_requestId] = zeroOrOne;
         requestIdToBinaryResultFulfilled[_requestId] = true;
-        emit RequestIdFulfilled(_requestId, zeroOrOne);
-
         // todo make sure this function can never revert, maybe move all extra logic to _claim function
     }
 
@@ -160,10 +156,13 @@ contract DegenSwapHook is BaseHook, VRFConsumerBaseV2Plus {
         );
     }
 
-    function claim(uint256 _requestId) public {
+    //todo maybe just check the 6909 based off a mapping of requestId ==> 6909
+    function claim(uint256 _requestId, uint256 id, uint256 amount) public {
         // todo somehow check this is their stuff, 6909?
-        // todo make sure they cant double claim
-
+        require(
+            requestIdToBinaryResultClaimed[_requestId] == false,
+            "DegenSwapHook: already claimed"
+        );
         require(
             requestIdToBinaryResultFulfilled[_requestId] == true,
             "DegenSwapHook: result not ready"
@@ -172,13 +171,20 @@ contract DegenSwapHook is BaseHook, VRFConsumerBaseV2Plus {
         emit Claimed(_requestId);
     }
 
-    function _claim(uint256 _requestId) internal {
+    function _claim(uint256 _requestId, uint256 id, uint256 amount) internal {
         uint256 result = requestIdToBinaryResult[_requestId];
+        // todo get the % they want to gamble
+        // todo take the fee (likely 1% and likely before applying gambling odds)
         if (result == 0) {
-            // they lost, transfer their remaining balance to them
-        } else {
-            // they won, transfer their winnings to them
+            /// @dev user lost, transfer their remaining balance to them
+
+            // burn claim token
+        } else if (result == 1) {
+            /// @dev user won, transfer their winnings to them
+
+            // burn claim token
         }
+        requestIdToBinaryResultClaimed[_requestId] = true;
     }
 
     function setRandomnessNumWords(uint32 _randomnessNumWords) public {
