@@ -181,5 +181,25 @@ contract DegenSwapHook is BaseHook, VRFConsumerBaseV2Plus {
         }
     }
 
+    function setRandomnessNumWords(uint32 _randomnessNumWords) public {
+        randomnessNumWords = _randomnessNumWords;
+    }
+
+    function setRandomnessCallbackGasLimit(uint32 _randomnessCallbackGasLimit) public {
+        randomnessCallbackGasLimit = _randomnessCallbackGasLimit;
+    }
+
+    function setRandomnessRequestConfirmations(uint16 _randomnessRequestConfirmations) public {
+        randomnessRequestConfirmations = _randomnessRequestConfirmations;
+    }
+
+    function setSubscriptionId(uint256 _subscriptionId) public {
+        s_subscriptionId = _subscriptionId;
+    }
+
+    function setKeyHash(bytes32 _keyHash) public {
+        s_keyHash = _keyHash;
+    }
+
     //todo the math/rebalancing
 }
