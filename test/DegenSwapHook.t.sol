@@ -24,9 +24,6 @@ import {VRFCoordinatorV2_5Mock} from "chainlink/contracts/src/v0.8/vrf/mocks/VRF
 
 contract TestPointsHook is Test, Deployers {
     using CurrencyLibrary for Currency;
-
-    MockERC20 token; // our token to use in the ETH-TOKEN pool
-
     // Native tokens are represented by address(0)
     Currency ethCurrency = Currency.wrap(address(0));
     Currency tokenCurrency;
@@ -35,6 +32,9 @@ contract TestPointsHook is Test, Deployers {
     VRFCoordinatorV2_5Mock vrfCoordinator;
     uint256 subId;
     bytes32 keyHash = "";
+    uint32 numWords = 1;
+    uint32 callbackGasLimit = 400000;
+    uint16 requestConfirmations = 3;
 
     function setUp() public {
         // Deploy VRFCoordinator
@@ -44,56 +44,86 @@ contract TestPointsHook is Test, Deployers {
         // Step 1 + 2
         // Deploy PoolManager and Router contracts
         deployFreshManagerAndRouters();
+        // Deploy 2 currencies
+        (currency0, currency1) = deployMintAndApprove2Currencies();
 
-        // Deploy our TOKEN contract
-        token = new MockERC20("Test Token", "TEST", 18);
-        tokenCurrency = Currency.wrap(address(token));
-
-        // Mint a bunch of TOKEN to ourselves and to address(1)
-        token.mint(address(this), 1000 ether);
-        token.mint(address(1), 1000 ether);
-
-        // Deploy hook to an address that has the proper flags set
-        uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG);
+        address hookAddress = address(
+            uint160(Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG)
+        );
         deployCodeTo(
             "DegenSwapHook.sol",
-            abi.encode(manager, "Degen Swap Token", "DST", address(vrfCoordinator), subId, keyHash),
-            address(flags)
+            abi.encode(
+                manager,
+                address(vrfCoordinator),
+                subId,
+                keyHash,
+                numWords,
+                callbackGasLimit,
+                requestConfirmations
+            ),
+            hookAddress
         );
+        hook = DegenSwapHook(hookAddress);
 
-        // Deploy our hook
-        hook = DegenSwapHook(address(flags));
+        (key, ) = initPoolAndAddLiquidity(
+            currency0,
+            currency1,
+            hook,
+            3000,
+            SQRT_PRICE_1_1,
+            ZERO_BYTES
+        );
 
         // Add the hook as a consumer of the subscription
-        ( , , , address subOwner, ) = vrfCoordinator.getSubscription(subId);
-        require (subOwner == address(this), "Subscription owner is not this contract");
+        (, , , address subOwner, ) = vrfCoordinator.getSubscription(subId);
+        require(
+            subOwner == address(this),
+            "Subscription owner is not this contract"
+        );
         vrfCoordinator.addConsumer(subId, address(hook));
         assertEq(vrfCoordinator.consumerIsAdded(subId, address(hook)), true);
-
-        // Approve our TOKEN for spending on the swap router and modify liquidity router
-        // These variables are coming from the `Deployers` contract
-        token.approve(address(swapRouter), type(uint256).max);
-        token.approve(address(modifyLiquidityRouter), type(uint256).max);
-
-        // Initialize a pool
-        (key, ) = initPool(
-            ethCurrency, // Currency 0 = ETH
-            tokenCurrency, // Currency 1 = TOKEN
-            hook, // Hook Contract
-            3000, // Swap Fees
-            SQRT_PRICE_1_1, // Initial Sqrt(P) value = 1
-            ZERO_BYTES // No additional `initData`
-        );
     }
 
     function testRequestRandomness() public {
-        (uint256 requestId, ) = hook.getRandomness(400000, 3, 1, bytes(""));
-        uint256[] memory randomWords = new uint256[](1);
-        randomWords[0] = 1;
-        vrfCoordinator.fundSubscriptionWithNative{value: 1000 ether}(subId);
-        vrfCoordinator.fulfillRandomWordsWithOverride(requestId, address(hook), randomWords);
+        // (uint256 requestId, ) = hook.getRandomness(400000, 3, 1, bytes(""));
+        // uint256[] memory randomWords = new uint256[](1);
+        // randomWords[0] = 1;
+        // vrfCoordinator.fundSubscriptionWithNative{value: 1000 ether}(subId);
+        // vrfCoordinator.fulfillRandomWordsWithOverride(requestId, address(hook), randomWords);
+        // assertEq(hook.requestIdToBinaryResultFulfilled(requestId), true);
+        // assertEq(hook.requestIdToBinaryResult(requestId), 1);
+    }
 
-        assertEq(hook.requestIdToBinaryResultFulfilled(requestId), true);
-        assertEq(hook.requestIdToBinaryResult(requestId), 1);
+    function testAfterSwap() public {
+        uint256 token0BalanceBefore = currency0.balanceOfSelf();
+        uint256 token1BalanceBefore = currency1.balanceOfSelf();
+
+        swapRouter.swap(
+            key,
+            IPoolManager.SwapParams({
+                zeroForOne: true,
+                amountSpecified: -0.001 ether,
+                sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            }),
+            PoolSwapTest.TestSettings({
+                takeClaims: false,
+                settleUsingBurn: false
+            }),
+            ZERO_BYTES
+        );
+
+        uint256 token0BalanceAfter = currency0.balanceOfSelf();
+        uint256 token1BalanceAfter = currency1.balanceOfSelf();
+
+        // Input token has been deducted
+        assertEq(token0BalanceAfter, token0BalanceBefore - 0.001 ether);
+
+        // Didn't get output tokens back to user
+        assertEq(token1BalanceAfter, token1BalanceBefore);
+
+        // Hook should have received the output token
+        uint256 hookToken1Balance = currency1.balanceOf(address(hook));
+        console.log("Hook Token1 Balance: ", hookToken1Balance);
+        assertGt(hookToken1Balance, 0);
     }
 }

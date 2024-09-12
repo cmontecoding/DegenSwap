@@ -42,8 +42,6 @@ contract DegenSwapHook is BaseHook, VRFConsumerBaseV2Plus {
     // Initialize BaseHook and VRFV2PlusWrapperConsumerBase
     constructor(
         IPoolManager _manager,
-        string memory _name,
-        string memory _symbol,
         address _vrfCoordinator,
         uint256 _subscriptionId,
         bytes32 _keyHash,
@@ -115,6 +113,7 @@ contract DegenSwapHook is BaseHook, VRFConsumerBaseV2Plus {
 
         /// @dev get random number
         (uint256 requestId, uint256 reqPrice) = _getRandomness();
+        //todo emit event RandomnessRequested with the request id and this swap data
 
         return (this.afterSwap.selector, hookDeltaUnspecified);
     }
