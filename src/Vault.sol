@@ -9,6 +9,12 @@ import {Ownable, Ownable2Step} from "lib/openzeppelin-contracts/contracts/access
 import {IVault} from "../src/interfaces/IVault.sol";
 import {IUniswapV2Pair} from "../src/interfaces/IUniswapV2Pair.sol";
 
+enum RequestStatus {
+    None,
+    Initiated,
+    Approved
+}
+
 contract Vault is IVault, Ownable2Step {
     using SafeERC20 for IERC20;
     using Math for uint256;
@@ -26,6 +32,8 @@ contract Vault is IVault, Ownable2Step {
 
     // (pool => (user => (token => timestamp))) depositAt;
     mapping(address user => uint256 timestamp) public depositAt;
+
+    mapping(address user => RequestStatus status) public withdrawalRequest;
 
     // (pool => (token => totalRewardPerToken)) totalRewardPerToken;
     mapping(address token => int256 totalRewardPerToken) totalRewardPerToken;
@@ -74,11 +82,25 @@ contract Vault is IVault, Ownable2Step {
         emit ChangedMinTimePeriod(oldMinTimePeriod, newMinTimePeriod);
     }
 
+    function approveWithdrawalRequest(address user) external onlyOwner {
+        require(withdrawalRequest[user] == RequestStatus.Initiated);
+
+        withdrawalRequest[user] = RequestStatus.Approved;
+    }
+
+    function makeWithdrawalRequest() external {
+        require(withdrawalRequest[msg.sender] == RequestStatus.None);
+
+        withdrawalRequest[msg.sender] = RequestStatus.Initiated;
+    }
+
     function addLiquidity(uint256 amount0, uint256 amount1) external {
         _addLiquidity(amount0, amount1);
     }
 
     function removeLiquidity(address token, uint256 amount) external {
+        require(withdrawalRequest[msg.sender] == RequestStatus.Approved);
+
         _removeLiquidity(token, amount);
     }
 
