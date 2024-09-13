@@ -4,7 +4,7 @@ pragma solidity 0.8.26;
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
-import {Ownable, Ownable2Step} from "lib/openzeppelin-contracts/contracts/access/Ownable2Step.sol";
+import {AccessControl} from "lib/openzeppelin-contracts/contracts/access/AccessControl.sol";
 
 import {IVault} from "../src/interfaces/IVault.sol";
 import {IUniswapV2Pair} from "../src/interfaces/IUniswapV2Pair.sol";
@@ -15,10 +15,11 @@ enum RequestStatus {
     Approved
 }
 
-contract Vault is IVault, Ownable2Step {
+contract Vault is IVault, AccessControl {
     using SafeERC20 for IERC20;
     using Math for uint256;
 
+    bytes32 public constant APPROVER_ROLE = bytes32(uint256(1));
     uint256 public constant MAX_FEE = 10_000; // in `BPS`
 
     // (pool => (user => (token => amount))) balances;
@@ -46,11 +47,19 @@ contract Vault is IVault, Ownable2Step {
     address public feeAddress;
     uint256 public minTimePeriod;
 
-    constructor(address _owner, address _pair, uint256 _fee, address _feeAddress, uint256 _minTimePeriod)
-        Ownable(_owner)
-    {
+    constructor(
+        address _admin,
+        address _approver,
+        address _pair,
+        uint256 _fee,
+        address _feeAddress,
+        uint256 _minTimePeriod
+    ) {
         require(_fee <= MAX_FEE /*, InvalidFee(_fee)*/ );
         require(_pair != address(0));
+
+        _grantRole(DEFAULT_ADMIN_ROLE, _admin);
+        _grantRole(APPROVER_ROLE, _approver);
 
         pair = IUniswapV2Pair(_pair);
         fee = _fee;
@@ -58,7 +67,7 @@ contract Vault is IVault, Ownable2Step {
         minTimePeriod = _minTimePeriod;
     }
 
-    function setFee(uint256 newFee) external onlyOwner {
+    function setFee(uint256 newFee) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(newFee <= MAX_FEE /*, InvalidFee(newFee)*/ );
         uint256 oldFee = fee;
         fee = newFee;
@@ -66,7 +75,7 @@ contract Vault is IVault, Ownable2Step {
         emit ChangedFee(oldFee, newFee);
     }
 
-    function setFeeAddress(address newFeeAddress) external onlyOwner {
+    function setFeeAddress(address newFeeAddress) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (fee > 0) require(newFeeAddress != address(0) /*, InvalidFeeAddress(newFeeAddress)*/ );
 
         address oldFeeAddress = feeAddress;
@@ -75,14 +84,14 @@ contract Vault is IVault, Ownable2Step {
         emit ChangedFeeAddress(oldFeeAddress, newFeeAddress);
     }
 
-    function setMinTimePeriod(uint256 newMinTimePeriod) external onlyOwner {
+    function setMinTimePeriod(uint256 newMinTimePeriod) external onlyRole(DEFAULT_ADMIN_ROLE) {
         uint256 oldMinTimePeriod = minTimePeriod;
         minTimePeriod = newMinTimePeriod;
 
         emit ChangedMinTimePeriod(oldMinTimePeriod, newMinTimePeriod);
     }
 
-    function approveWithdrawalRequest(address user) external onlyOwner {
+    function approveWithdrawalRequest(address user) external onlyRole(APPROVER_ROLE) {
         require(withdrawalRequest[user] == RequestStatus.Initiated);
 
         withdrawalRequest[user] = RequestStatus.Approved;
