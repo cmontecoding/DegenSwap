@@ -7,6 +7,7 @@ import {Math} from "lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {Ownable, Ownable2Step} from "lib/openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 
 import {IVault} from "../src/interfaces/IVault.sol";
+import {IUniswapV2Pair} from "../src/interfaces/IUniswapV2Pair.sol";
 
 contract Vault is IVault, Ownable2Step {
     using SafeERC20 for IERC20;
@@ -20,28 +21,37 @@ contract Vault is IVault, Ownable2Step {
     // (pool => (token => amount)) totalSupply;
     mapping(address token => uint256 amount) public totalSupply;
 
+    // (pool => (user => amount)) lpTokens;
+    mapping(address user => uint256 amount) public lpTokens;
+
     // (pool => (user => (token => timestamp))) depositAt;
-    mapping(address user => mapping(address token => uint256 timestamp)) public depositAt;
+    mapping(address user => uint256 timestamp) public depositAt;
 
     // (pool => (token => totalRewardPerToken)) totalRewardPerToken;
-    mapping(address token => uint256 totalRewardPerToken) totalRewardPerToken;
+    mapping(address token => int256 totalRewardPerToken) totalRewardPerToken;
 
     // (pool => (user => (token => userRewardPerToken))) userRewardPerToken;
-    mapping(address user => mapping(address token => uint256 userRewardPerToken)) userRewardPerToken;
+    mapping(address user => mapping(address token => int256 userRewardPerToken)) userRewardPerToken;
 
+    IUniswapV2Pair public immutable pair;
     uint256 public fee; // in `BPS`
     address public feeAddress;
     uint256 public minTimePeriod;
 
-    constructor(address _owner, uint256 _fee, address _feeAddress, uint256 _minTimePeriod) Ownable(_owner) {
-        require(_fee <= MAX_FEE, InvalidFee(_fee));
+    constructor(address _owner, address _pair, uint256 _fee, address _feeAddress, uint256 _minTimePeriod)
+        Ownable(_owner)
+    {
+        require(_fee <= MAX_FEE /*, InvalidFee(_fee)*/ );
+        require(_pair != address(0));
+
+        pair = IUniswapV2Pair(_pair);
         fee = _fee;
         feeAddress = _feeAddress;
         minTimePeriod = _minTimePeriod;
     }
 
     function setFee(uint256 newFee) external onlyOwner {
-        require(newFee <= MAX_FEE, InvalidFee(newFee));
+        require(newFee <= MAX_FEE /*, InvalidFee(newFee)*/ );
         uint256 oldFee = fee;
         fee = newFee;
 
@@ -49,7 +59,7 @@ contract Vault is IVault, Ownable2Step {
     }
 
     function setFeeAddress(address newFeeAddress) external onlyOwner {
-        if (fee > 0) require(newFeeAddress != address(0), InvalidFeeAddress(newFeeAddress));
+        if (fee > 0) require(newFeeAddress != address(0) /*, InvalidFeeAddress(newFeeAddress)*/ );
 
         address oldFeeAddress = feeAddress;
         feeAddress = newFeeAddress;
@@ -64,27 +74,48 @@ contract Vault is IVault, Ownable2Step {
         emit ChangedMinTimePeriod(oldMinTimePeriod, newMinTimePeriod);
     }
 
-    function addLiquidity(address token, uint256 amount) external {
-        _addLiquidity(token, amount);
+    function addLiquidity(uint256 amount0, uint256 amount1) external {
+        _addLiquidity(amount0, amount1);
     }
 
     function removeLiquidity(address token, uint256 amount) external {
         _removeLiquidity(token, amount);
     }
 
-    function _addLiquidity(address token, uint256 amount) internal {
-        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
+    function _addLiquidity(uint256 amount0, uint256 amount1) internal {
+        address token0 = pair.token0();
+        address token1 = pair.token1();
 
-        balances[msg.sender][token] += amount;
-        totalSupply[token] += amount;
-        depositAt[msg.sender][token] = block.timestamp;
+        uint256 amount0Pair = amount0 / 2;
+        uint256 amount1Pair = amount1 / 2;
 
-        emit AddedLiquidity(msg.sender, token, amount);
+        // Add half of the tokens to the `Pair` contract
+        IERC20(token0).safeTransferFrom(msg.sender, address(pair), amount0Pair);
+        IERC20(token0).safeTransferFrom(msg.sender, address(pair), amount1Pair);
+        uint256 _lpTokens = pair.mint(address(this));
+        lpTokens[msg.sender] = _lpTokens;
+
+        // The other half will serve as potential payouts for traders who wager
+        amount0 -= amount0Pair;
+        amount1 -= amount1Pair;
+
+        IERC20(token0).safeTransferFrom(msg.sender, address(this), amount0);
+        IERC20(token1).safeTransferFrom(msg.sender, address(this), amount1);
+
+        balances[msg.sender][token0] += amount0;
+        balances[msg.sender][token1] += amount1;
+
+        totalSupply[token0] += amount0;
+        totalSupply[token1] += amount1;
+
+        depositAt[msg.sender] = block.timestamp;
+
+        emit AddedLiquidity(msg.sender, amount0, amount1);
     }
 
     function _removeLiquidity(address token, uint256 amount) internal {
-        uint256 timeDelta = block.timestamp - depositAt[msg.sender][token];
-        require(timeDelta >= minTimePeriod, InsufficientAmountOfTime(timeDelta));
+        uint256 timeDelta = block.timestamp - depositAt[msg.sender];
+        require(timeDelta >= minTimePeriod /*, InsufficientAmountOfTime(timeDelta)*/ );
 
         // Calculate the withdrawal fee for the given `amount`
         uint256 f = getFee(amount);
@@ -97,8 +128,10 @@ contract Vault is IVault, Ownable2Step {
 
         /*
         uint256 balance = balances[msg.sender][token];
-        uint256 rewardPerToken = userRewardPerToken[msg.sender][token];
-        uint256 amountPlusUserReward = balance * rewardPerToken;
+        int256 _userRewardPerToken = userRewardPerToken[msg.sender][token];
+        int256 _totalRewardPerToken = totalRewardPerToken[token];
+        int256 reward = balance * (_totalRewardPerToken - _userRewardPerToken);
+        uint256 amountPlusUserReward = balance + reward;
         */
 
         balances[msg.sender][token] -= amount;
@@ -106,7 +139,7 @@ contract Vault is IVault, Ownable2Step {
             totalSupply[token] -= amount;
         }
 
-        delete depositAt[msg.sender][token];
+        delete depositAt[msg.sender];
 
         IERC20(token).safeTransfer(msg.sender, amountPlusRewards - f);
 

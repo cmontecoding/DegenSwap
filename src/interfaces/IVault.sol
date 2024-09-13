@@ -9,9 +9,9 @@ interface IVault {
     event ChangedFee(uint256 oldFee, uint256 newFee);
     event ChangedFeeAddress(address oldFeeAddress, address newFeeAddress);
     event ChangedMinTimePeriod(uint256 oldMinTimePeriod, uint256 newMinTimePeriod);
-    event AddedLiquidity(address indexed user, address indexed token, uint256 amount);
+    event AddedLiquidity(address indexed user, uint256 amount0, uint256 amount1);
     event RemovedLiquidity(address indexed user, address indexed token, uint256 amount);
 
-    function addLiquidity(address token, uint256 amount) external;
+    function addLiquidity(uint256 amount0, uint256 amount1) external;
     function removeLiquidity(address token, uint256 amount) external;
 }
