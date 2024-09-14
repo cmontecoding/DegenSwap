@@ -24,7 +24,15 @@ contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
 
     mapping(uint256 => uint256) public requestIdToBinaryResult;
     mapping(uint256 => bool) public requestIdToBinaryResultFulfilled;
-    mapping(uint256 => bool) public requestIdToBinaryResultClaimed; //todo maybe combine this and the above into an enum. or all 3 into struct
+    mapping(uint256 => WagerTicket) public requestIdToWager;
+
+    struct WagerTicket {
+        address better;
+        uint256 currencyId;
+        uint256 wagerAmount;
+        uint256 gamblingPercentage;
+        bool claimed;
+    }
 
     event RequestIdFulfilled(uint256 requestId, uint256 result);
     event Claimed(uint256 requestId);
@@ -50,10 +58,7 @@ contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
         uint32 _randomnessNumWords,
         uint32 _randomnessCallbackGasLimit,
         uint16 _randomnessRequestConfirmations
-    )
-        BaseHook(_manager)
-        VRFConsumerBaseV2Plus(_vrfCoordinator)
-    {
+    ) BaseHook(_manager) VRFConsumerBaseV2Plus(_vrfCoordinator) {
         s_subscriptionId = _subscriptionId;
         s_keyHash = _keyHash;
         randomnessNumWords = _randomnessNumWords;
@@ -88,17 +93,44 @@ contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
             });
     }
 
+    function getHookData(
+        address better,
+        uint256 gamblingPercentage
+    ) public pure returns (bytes memory) {
+        return abi.encode(better, gamblingPercentage);
+    }
+
     function afterSwap(
         address,
         PoolKey calldata key,
         IPoolManager.SwapParams calldata params,
         BalanceDelta delta,
-        bytes calldata
+        bytes calldata hookData
     ) external override returns (bytes4, int128) {
         /// @dev we only execute the hook if this is an exact input swap
         /// (exact output swaps will just be normal swaps)
         if (params.amountSpecified > 0) return (this.afterSwap.selector, 0);
-        
+
+        // If no hook data is provided, we don't execute the hook
+        require(hookData.length > 0, "DegenSwapHook: no hook data");
+
+        // Decode the better address and gambling % (in basis points)
+        (address better, uint256 gamblingPercentage) = abi.decode(
+            hookData,
+            (address, uint256)
+        );
+
+        require(
+            gamblingPercentage <= 10000,
+            "DegenSwapHook: gambling percentage must be <= 10000"
+        );
+        require(
+            gamblingPercentage > 0,
+            "DegenSwapHook: gambling percentage must be > 0"
+        );
+
+        //todo check the vault balance and make sure that the vault has enough to pay out the potential winnings
+
         int128 hookDeltaUnspecified = params.zeroForOne
             ? delta.amount1()
             : delta.amount0();
@@ -114,8 +146,17 @@ contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
         /// @dev get random number
         (uint256 requestId, uint256 reqPrice) = _getRandomness();
 
+        /// @dev store the wager ticket
+        requestIdToWager[requestId] = WagerTicket({
+            better: better,
+            currencyId: currency.toId(),
+            wagerAmount: uint256(int256(hookDeltaUnspecified)),
+            gamblingPercentage: gamblingPercentage,
+            claimed: false
+        });
+
         /// @dev mint 6909 claim token
-        _mint(msg.sender, currency.toId(), uint256(int256(hookDeltaUnspecified))); //todo make not msg.sender
+        _mint(better, currency.toId(), uint256(int256(hookDeltaUnspecified))); //todo currently not sure how to make this useful because 6909 is fungible
 
         return (this.afterSwap.selector, hookDeltaUnspecified);
     }
@@ -134,7 +175,6 @@ contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
         uint256 zeroOrOne = _randomWords[0] % 2;
         requestIdToBinaryResult[_requestId] = zeroOrOne;
         requestIdToBinaryResultFulfilled[_requestId] = true;
-        // todo make sure this function can never revert, maybe move all extra logic to _claim function
     }
 
     /**
@@ -143,7 +183,10 @@ contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
      * @return requestId is the VRF V2 request ID.
      * @return reqPrice is the VRF V2 request price.
      */
-    function _getRandomness() internal returns (uint256 requestId, uint256 reqPrice) { 
+    function _getRandomness()
+        internal
+        returns (uint256 requestId, uint256 reqPrice)
+    {
         //todo add the second return value
         requestId = s_vrfCoordinator.requestRandomWords(
             VRFV2PlusClient.RandomWordsRequest({
@@ -160,46 +203,69 @@ contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
         );
     }
 
-    //todo maybe just check the 6909 based off a mapping of requestId ==> 6909
-    function claim(uint256 _requestId, uint256 id, uint256 amount) public {
-        // todo somehow check this is their stuff, 6909?
+    function claim(uint256 _requestId) public {
         require(
-            requestIdToBinaryResultClaimed[_requestId] == false,
+            requestIdToWager[_requestId].claimed == false,
             "DegenSwapHook: already claimed"
+        );
+        require(
+            requestIdToWager[_requestId].better != address(0),
+            "DegenSwapHook: there is no request at this id"
+        );
+        require(
+            requestIdToWager[_requestId].better == msg.sender,
+            "DegenSwapHook: not your claim"
         );
         require(
             requestIdToBinaryResultFulfilled[_requestId] == true,
             "DegenSwapHook: result not ready"
         );
-        _claim(_requestId, id, amount);
+        _claim(_requestId);
         emit Claimed(_requestId);
     }
 
-    function _claim(uint256 _requestId, uint256 id, uint256 amount) internal {
+    function _claim(uint256 _requestId) internal {
         uint256 result = requestIdToBinaryResult[_requestId];
-        // todo get the % they want to gamble
+        address better = requestIdToWager[_requestId].better;
+        uint256 wagerAmount = requestIdToWager[_requestId].wagerAmount;
+        uint256 gamblingPercentage = requestIdToWager[_requestId].gamblingPercentage;
+        uint256 currencyId = requestIdToWager[_requestId].currencyId;
+        Currency currency = CurrencyLibrary.fromId(currencyId);
         // todo take the fee (likely 1% and likely before applying gambling odds)
         if (result == 0) {
             /// @dev user lost, transfer their remaining balance to them
-
-            // burn claim token
+            uint256 lostAmount = wagerAmount * gamblingPercentage / 10000;
+            uint256 remainingAmount = wagerAmount - lostAmount;
+            /// @dev transfer lost amount to vault
+            //Currency.transfer(currency, address(vault), lostAmount);
+            // todo call vault.increaseReserves(lostAmount)
+            CurrencyLibrary.transfer(currency, better, remainingAmount);
+            _burn(better, currencyId, wagerAmount);
         } else if (result == 1) {
             /// @dev user won, transfer their winnings to them
-
-            // burn claim token
+            uint256 winnings = wagerAmount * gamblingPercentage / 10000;
+            // get winnings from vault
+            // uint256 winningsWithSlippage = vault.fulfillWinnings(currency, winnings);
+            // ^ this will return the winnings with slippage
+            //Currency.transfer(currency, better, wagerAmount + winningsWithSlippage);
+            _burn(better, currencyId, wagerAmount);
         }
-        requestIdToBinaryResultClaimed[_requestId] = true;
+        requestIdToWager[_requestId].claimed = true;
     }
 
     function setRandomnessNumWords(uint32 _randomnessNumWords) public {
         randomnessNumWords = _randomnessNumWords;
     }
 
-    function setRandomnessCallbackGasLimit(uint32 _randomnessCallbackGasLimit) public {
+    function setRandomnessCallbackGasLimit(
+        uint32 _randomnessCallbackGasLimit
+    ) public {
         randomnessCallbackGasLimit = _randomnessCallbackGasLimit;
     }
 
-    function setRandomnessRequestConfirmations(uint16 _randomnessRequestConfirmations) public {
+    function setRandomnessRequestConfirmations(
+        uint16 _randomnessRequestConfirmations
+    ) public {
         randomnessRequestConfirmations = _randomnessRequestConfirmations;
     }
 

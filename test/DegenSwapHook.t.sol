@@ -98,6 +98,8 @@ contract TestPointsHook is Test, Deployers {
         uint256 token0BalanceBefore = currency0.balanceOfSelf();
         uint256 token1BalanceBefore = currency1.balanceOfSelf();
 
+        bytes memory hookData = hook.getHookData(address(this), 10000);
+
         swapRouter.swap(
             key,
             IPoolManager.SwapParams({
@@ -109,7 +111,7 @@ contract TestPointsHook is Test, Deployers {
                 takeClaims: false,
                 settleUsingBurn: false
             }),
-            ZERO_BYTES
+            hookData
         );
 
         uint256 token0BalanceAfter = currency0.balanceOfSelf();
@@ -125,6 +127,34 @@ contract TestPointsHook is Test, Deployers {
         uint256 hookToken1Balance = currency1.balanceOf(address(hook));
         console.log("Hook Token1 Balance: ", hookToken1Balance);
         assertGt(hookToken1Balance, 0);
+    }
+
+    function test6909() public {
+        uint256 token0BalanceBefore = currency0.balanceOfSelf();
+        uint256 token1BalanceBefore = currency1.balanceOfSelf();
+
+        bytes memory hookData = hook.getHookData(address(this), 10000);
+
+        swapRouter.swap(
+            key,
+            IPoolManager.SwapParams({
+                zeroForOne: true,
+                amountSpecified: -0.001 ether,
+                sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            }),
+            PoolSwapTest.TestSettings({
+                takeClaims: false,
+                settleUsingBurn: false
+            }),
+            hookData
+        );
+
+        uint256 token0BalanceAfter = currency0.balanceOfSelf();
+        uint256 token1BalanceAfter = currency1.balanceOfSelf();
+
+        // user should have received 6909 claim token
+        uint256 claimTokenBalance = hook.balanceOf(address(this), currency1.toId());
+        assertGt(claimTokenBalance, 0);
     }
 
     /// @notice test that an exact output swap will not execute the hook
