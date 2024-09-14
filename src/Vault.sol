@@ -201,10 +201,10 @@ contract Vault is IVault, AccessControl {
         delete depositAt[msg.sender];
         delete withdrawalRequest[msg.sender];
 
-        uint256 lpAmount = lpTokens[msg.sender].mulDiv(percentage, pair.balanceOf(address(this)));
+        uint256 lpAmount = lpTokens[msg.sender].mulDiv(percentage, IERC20(address(pair)).balanceOf(address(this)));
         lpTokens[msg.sender] -= lpAmount;
 
-        pair.transfer(address(pair), lpAmount);
+        IERC20(address(pair)).transfer(address(pair), lpAmount);
         (uint256 _amount0, uint256 _amount1) = pair.burn(address(this));
 
         IERC20(token0).safeTransfer(msg.sender, amount0PlusPotentialRewards + _amount0 - f0);
