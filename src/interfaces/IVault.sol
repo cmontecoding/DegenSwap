@@ -13,5 +13,5 @@ interface IVault {
     event RemovedLiquidity(address indexed user, uint256 amount0, uint256 amount1, uint256 lpAmount);
 
     function addLiquidity(uint256 amount0, uint256 amount1) external;
-    function removeLiquidity(uint256 amount0, uint256 amount1, uint256 lpAmount) external;
+    function removeLiquidity(uint256 percentage) external;
 }
