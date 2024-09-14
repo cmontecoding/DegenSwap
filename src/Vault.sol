@@ -107,10 +107,10 @@ contract Vault is IVault, AccessControl {
         _addLiquidity(amount0, amount1);
     }
 
-    function removeLiquidity(address token, uint256 amount) external {
+    function removeLiquidity(uint256 amount0, uint256 amount1, uint256 lpAmount) external {
         require(withdrawalRequest[msg.sender] == RequestStatus.Approved);
 
-        _removeLiquidity(token, amount);
+        _removeLiquidity(amount0, amount1, lpAmount);
     }
 
     function _addLiquidity(uint256 amount0, uint256 amount1) internal {
@@ -144,18 +144,25 @@ contract Vault is IVault, AccessControl {
         emit AddedLiquidity(msg.sender, amount0, amount1);
     }
 
-    function _removeLiquidity(address token, uint256 amount) internal {
+    function _removeLiquidity(uint256 amount0, uint256 amount1, uint256 lpAmount) internal {
         uint256 timeDelta = block.timestamp - depositAt[msg.sender];
         require(timeDelta >= minTimePeriod /*, InsufficientAmountOfTime(timeDelta)*/ );
+        require(withdrawalRequest[msg.sender] == RequestStatus.Approved);
 
-        // Calculate the withdrawal fee for the given `amount`
-        uint256 f = getFee(amount);
+        address token0 = pair.token0();
+        address token1 = pair.token1();
 
         // Cache the actual supply of the given `token`, present in the contract
-        uint256 actualTotalSupply = IERC20(token).balanceOf(address(this));
+        uint256 token0ActualTotalSupply = IERC20(token0).balanceOf(address(this));
+        uint256 token1ActualTotalSupply = IERC20(token1).balanceOf(address(this));
 
         // Calculate the sum of the withdrawn `amount` and accuumulated rewards
-        uint256 amountPlusRewards = amount.mulDiv(actualTotalSupply, totalSupply[token]);
+        uint256 amount0PlusPotentialRewards = amount0.mulDiv(token0ActualTotalSupply, totalSupply[token0]);
+        uint256 amount1PlusPotentialRewards = amount0.mulDiv(token1ActualTotalSupply, totalSupply[token1]);
+
+        // Calculate the withdrawal fee
+        uint256 f0 = getFee(amount0PlusPotentialRewards);
+        uint256 f1 = getFee(amount1PlusPotentialRewards);
 
         /*
         uint256 balance = balances[msg.sender][token];
@@ -165,19 +172,32 @@ contract Vault is IVault, AccessControl {
         uint256 amountPlusUserReward = balance + reward;
         */
 
-        balances[msg.sender][token] -= amount;
+        balances[msg.sender][token0] -= amount0;
+        balances[msg.sender][token1] -= amount1;
         unchecked {
-            totalSupply[token] -= amount;
+            totalSupply[token0] -= amount0;
+            totalSupply[token1] -= amount1;
         }
 
         delete depositAt[msg.sender];
+        delete withdrawalRequest[msg.sender];
 
-        IERC20(token).safeTransfer(msg.sender, amountPlusRewards - f);
+        lpTokens[msg.sender] -= lpAmount;
+
+        pair.transfer(address(pair), lpAmount);
+        (uint256 _amount0, uint256 _amount1) = pair.burn(address(this));
+
+        // amount0PlusPotentialRewards += _amount0;
+        // amount1PlusPotentialRewards += _amount1;
+
+        IERC20(token0).safeTransfer(msg.sender, amount0PlusPotentialRewards + _amount0 - f0);
+        IERC20(token1).safeTransfer(msg.sender, amount1PlusPotentialRewards + _amount1 - f1);
 
         // Transfer fee to a designated account
-        if (f > 0) IERC20(token).safeTransfer(feeAddress, f);
+        if (f0 > 0) IERC20(token0).safeTransfer(feeAddress, f0);
+        if (f1 > 0) IERC20(token0).safeTransfer(feeAddress, f1);
 
-        emit RemovedLiquidity(msg.sender, token, amount);
+        emit RemovedLiquidity(msg.sender, amount0PlusPotentialRewards - f0, amount1PlusPotentialRewards - f1, lpAmount);
     }
 
     function getFee(uint256 amount) public view returns (uint256) {
