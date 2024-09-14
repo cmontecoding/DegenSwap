@@ -101,23 +101,36 @@ contract Vault is IVault, AccessControl {
         withdrawalRequest[msg.sender] = RequestStatus.Initiated;
     }
 
-    function executeSwap(address token, uint256 amount) external onlyRole(SWAPPER_ROLE) {
-        uint256 balanceBefore = IERC20(token).balanceOf(address(this));
+    function fulfillWinnings(address token, uint256 amount) external onlyRole(SWAPPER_ROLE) {
+        uint256 amount0Out;
+        uint256 amount1Out;
+        address otherToken;
 
-        pair.swap(0, 0, address(this), "");
+        address token0 = pair.token0();
+        address token1 = pair.token1();
 
-        uint256 balanceAfter = IERC20(token).balanceOf(address(this));
+        uint256 k = pair.kLast();
+        uint256 denominator = amount.mulDiv(1e18, uint256(1e18 + 1e18 / 100));
+        uint256 amountOut = k / denominator;
+
+        token == token0
+            ? (otherToken = token1, amount0Out = 0, amount0Out = amountOut)
+            : (otherToken = token0, amount0Out = amountOut, amount0Out = 0);
+
+        uint256 balanceBefore = IERC20(otherToken).balanceOf(address(this));
+
+        pair.swap(amount0Out, amount1Out, address(this), "");
+
+        uint256 balanceAfter = IERC20(otherToken).balanceOf(address(this));
         uint256 swapAmount = balanceAfter - balanceBefore;
 
-        IERC20(token).transfer(msg.sender, swapAmount);
+        IERC20(otherToken).transfer(msg.sender, swapAmount);
     }
 
     function addLiquidity(uint256 amount0, uint256 amount1) external {
         _addLiquidity(amount0, amount1);
     }
 
-    // 10% -> 10% 50 ETH
-    // todo change it to percentage
     function removeLiquidity(uint256 percentage) external {
         require(withdrawalRequest[msg.sender] == RequestStatus.Approved);
         require(percentage <= 10_000);
