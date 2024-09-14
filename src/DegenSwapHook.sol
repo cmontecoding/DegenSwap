@@ -95,6 +95,10 @@ contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
         BalanceDelta delta,
         bytes calldata
     ) external override returns (bytes4, int128) {
+        /// @dev we only execute the hook if this is an exact input swap
+        /// (exact output swaps will just be normal swaps)
+        if (params.amountSpecified > 0) return (this.afterSwap.selector, 0);
+        
         int128 hookDeltaUnspecified = params.zeroForOne
             ? delta.amount1()
             : delta.amount0();
@@ -111,7 +115,7 @@ contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
         (uint256 requestId, uint256 reqPrice) = _getRandomness();
 
         /// @dev mint 6909 claim token
-        _mint(msg.sender, currency.toId(), uint256(hookDeltaUnspecified));
+        _mint(msg.sender, currency.toId(), uint256(int256(hookDeltaUnspecified))); //todo make not msg.sender
 
         return (this.afterSwap.selector, hookDeltaUnspecified);
     }
@@ -167,7 +171,7 @@ contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
             requestIdToBinaryResultFulfilled[_requestId] == true,
             "DegenSwapHook: result not ready"
         );
-        _claim(_requestId);
+        _claim(_requestId, id, amount);
         emit Claimed(_requestId);
     }
 

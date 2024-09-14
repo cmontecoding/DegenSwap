@@ -126,4 +126,64 @@ contract TestPointsHook is Test, Deployers {
         console.log("Hook Token1 Balance: ", hookToken1Balance);
         assertGt(hookToken1Balance, 0);
     }
+
+    /// @notice test that an exact output swap will not execute the hook
+    /// and will be a normal swap
+    function testAfterSwapExactOutputToken1() public {
+        uint256 token0BalanceBefore = currency0.balanceOfSelf();
+        uint256 token1BalanceBefore = currency1.balanceOfSelf();
+
+        swapRouter.swap(
+            key,
+            IPoolManager.SwapParams({
+                zeroForOne: true,
+                amountSpecified: .001 ether,
+                sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            }),
+            PoolSwapTest.TestSettings({
+                takeClaims: false,
+                settleUsingBurn: false
+            }),
+            ZERO_BYTES
+        );
+
+        uint256 token0BalanceAfter = currency0.balanceOfSelf();
+        uint256 token1BalanceAfter = currency1.balanceOfSelf();
+
+        // Output token is exact
+        assertEq(token1BalanceAfter, token1BalanceBefore + .001 ether);
+
+        // Input token was extracted
+        assertLt(token0BalanceAfter, token0BalanceBefore);
+    }
+
+    /// @notice test that an exact output swap will not execute the hook
+    /// and will be a normal swap
+    function testAfterSwapExactOutputToken0() public {
+        uint256 token0BalanceBefore = currency0.balanceOfSelf();
+        uint256 token1BalanceBefore = currency1.balanceOfSelf();
+
+        swapRouter.swap(
+            key,
+            IPoolManager.SwapParams({
+                zeroForOne: false,
+                amountSpecified: .001 ether,
+                sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
+            }),
+            PoolSwapTest.TestSettings({
+                takeClaims: false,
+                settleUsingBurn: false
+            }),
+            ZERO_BYTES
+        );
+
+        uint256 token0BalanceAfter = currency0.balanceOfSelf();
+        uint256 token1BalanceAfter = currency1.balanceOfSelf();
+
+        // Input token has been deducted
+        assertLt(token1BalanceAfter, token1BalanceBefore);
+
+        // Did get exact output tokens back to user
+        assertEq(token0BalanceAfter, token0BalanceBefore + .001 ether);
+    }
 }
