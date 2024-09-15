@@ -17,7 +17,7 @@ import {VRFV2PlusClient} from "chainlink/contracts/src/v0.8/vrf/dev/libraries/VR
 
 import {Vault} from "./Vault.sol";
 
-contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
+contract DegenSwapHook is BaseHook, VRFConsumerBaseV2Plus {
     // Use CurrencyLibrary and BalanceDeltaLibrary
     // to add some helper functions over the Currency and BalanceDelta
     // data types
@@ -166,9 +166,6 @@ contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
             revert("DegenSwapHook: vault does not have enough to pay out potential winnings");
         }
 
-        /// @dev mint 6909 claim token
-        _mint(better, currency.toId(), uint256(int256(hookDeltaUnspecified))); //todo currently not sure how to make this useful because 6909 is fungible
-
         return (this.afterSwap.selector, hookDeltaUnspecified);
     }
 
@@ -250,13 +247,11 @@ contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
             /// @dev transfer lost amount to vault
             CurrencyLibrary.transfer(currency, address(vault), lostAmount);
             CurrencyLibrary.transfer(currency, better, remainingAmount);
-            _burn(better, currencyId, outputAmount);
         } else if (result == 1) {
             /// @dev user won, transfer their winnings to them
             uint256 winnings = outputAmount * gamblingPercentage / 10000;
             uint256 winningsWithSlippage = vault.fulfillWinnings(Currency.unwrap(currency), winnings);
             CurrencyLibrary.transfer(currency, better, outputAmount + winningsWithSlippage);
-            _burn(better, currencyId, outputAmount);
         }
         requestIdToWager[_requestId].claimed = true;
     }
