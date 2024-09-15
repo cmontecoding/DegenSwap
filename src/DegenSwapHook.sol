@@ -15,6 +15,8 @@ import {Hooks} from "v4-core/libraries/Hooks.sol";
 import {VRFConsumerBaseV2Plus} from "chainlink/contracts/src/v0.8/vrf/dev/VRFConsumerBaseV2Plus.sol";
 import {VRFV2PlusClient} from "chainlink/contracts/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";
 
+import {Vault} from "./Vault.sol";
+
 contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
     // Use CurrencyLibrary and BalanceDeltaLibrary
     // to add some helper functions over the Currency and BalanceDelta
@@ -29,7 +31,7 @@ contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
     struct WagerTicket {
         address better;
         uint256 currencyId;
-        uint256 wagerAmount;
+        uint256 outputAmount;
         uint256 gamblingPercentage;
         bool claimed;
     }
@@ -49,6 +51,8 @@ contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
     uint32 public randomnessCallbackGasLimit;
     uint16 public randomnessRequestConfirmations;
 
+    Vault public vault;
+
     // Initialize BaseHook and VRFV2PlusWrapperConsumerBase
     constructor(
         IPoolManager _manager,
@@ -57,13 +61,15 @@ contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
         bytes32 _keyHash,
         uint32 _randomnessNumWords,
         uint32 _randomnessCallbackGasLimit,
-        uint16 _randomnessRequestConfirmations
+        uint16 _randomnessRequestConfirmations,
+        address _vault
     ) BaseHook(_manager) VRFConsumerBaseV2Plus(_vrfCoordinator) {
         s_subscriptionId = _subscriptionId;
         s_keyHash = _keyHash;
         randomnessNumWords = _randomnessNumWords;
         randomnessCallbackGasLimit = _randomnessCallbackGasLimit;
         randomnessRequestConfirmations = _randomnessRequestConfirmations;
+        vault = Vault(_vault);
     }
 
     // Set up hook permissions to return `true`
@@ -129,18 +135,18 @@ contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
             "DegenSwapHook: gambling percentage must be > 0"
         );
 
-        //todo check the vault balance and make sure that the vault has enough to pay out the potential winnings
-
         int128 hookDeltaUnspecified = params.zeroForOne
             ? delta.amount1()
             : delta.amount0();
+
+        uint256 outputAmount = uint256(int256(hookDeltaUnspecified));
 
         Currency currency = params.zeroForOne ? key.currency1 : key.currency0;
 
         poolManager.take(
             currency,
             address(this),
-            uint256(int256(hookDeltaUnspecified))
+            outputAmount
         );
 
         /// @dev get random number
@@ -150,10 +156,15 @@ contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
         requestIdToWager[requestId] = WagerTicket({
             better: better,
             currencyId: currency.toId(),
-            wagerAmount: uint256(int256(hookDeltaUnspecified)),
+            outputAmount: outputAmount,
             gamblingPercentage: gamblingPercentage,
             claimed: false
         });
+
+        /// @dev check the vault balance and make sure that the vault has enough to pay out the potential winnings
+        if ((outputAmount * gamblingPercentage / 10_000) < CurrencyLibrary.balanceOf(currency, address(vault))) {
+            revert("DegenSwapHook: vault does not have enough to pay out potential winnings");
+        }
 
         /// @dev mint 6909 claim token
         _mint(better, currency.toId(), uint256(int256(hookDeltaUnspecified))); //todo currently not sure how to make this useful because 6909 is fungible
@@ -227,28 +238,25 @@ contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
     function _claim(uint256 _requestId) internal {
         uint256 result = requestIdToBinaryResult[_requestId];
         address better = requestIdToWager[_requestId].better;
-        uint256 wagerAmount = requestIdToWager[_requestId].wagerAmount;
+        uint256 outputAmount = requestIdToWager[_requestId].outputAmount;
         uint256 gamblingPercentage = requestIdToWager[_requestId].gamblingPercentage;
         uint256 currencyId = requestIdToWager[_requestId].currencyId;
         Currency currency = CurrencyLibrary.fromId(currencyId);
         // todo take the fee (likely 1% and likely before applying gambling odds)
         if (result == 0) {
             /// @dev user lost, transfer their remaining balance to them
-            uint256 lostAmount = wagerAmount * gamblingPercentage / 10000;
-            uint256 remainingAmount = wagerAmount - lostAmount;
+            uint256 lostAmount = outputAmount * gamblingPercentage / 10000;
+            uint256 remainingAmount = outputAmount - lostAmount;
             /// @dev transfer lost amount to vault
-            //Currency.transfer(currency, address(vault), lostAmount);
-            // todo call vault.increaseReserves(lostAmount)
+            CurrencyLibrary.transfer(currency, address(vault), lostAmount);
             CurrencyLibrary.transfer(currency, better, remainingAmount);
-            _burn(better, currencyId, wagerAmount);
+            _burn(better, currencyId, outputAmount);
         } else if (result == 1) {
             /// @dev user won, transfer their winnings to them
-            uint256 winnings = wagerAmount * gamblingPercentage / 10000;
-            // get winnings from vault
-            // uint256 winningsWithSlippage = vault.fulfillWinnings(currency, winnings);
-            // ^ this will return the winnings with slippage
-            //Currency.transfer(currency, better, wagerAmount + winningsWithSlippage);
-            _burn(better, currencyId, wagerAmount);
+            uint256 winnings = outputAmount * gamblingPercentage / 10000;
+            uint256 winningsWithSlippage = vault.fulfillWinnings(Currency.unwrap(currency), winnings);
+            CurrencyLibrary.transfer(currency, better, outputAmount + winningsWithSlippage);
+            _burn(better, currencyId, outputAmount);
         }
         requestIdToWager[_requestId].claimed = true;
     }
@@ -276,6 +284,4 @@ contract DegenSwapHook is BaseHook, ERC6909, VRFConsumerBaseV2Plus {
     function setKeyHash(bytes32 _keyHash) public {
         s_keyHash = _keyHash;
     }
-
-    //todo the math/rebalancing
 }

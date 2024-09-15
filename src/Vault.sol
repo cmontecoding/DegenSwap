@@ -101,7 +101,7 @@ contract Vault is IVault, AccessControl {
         withdrawalRequest[msg.sender] = RequestStatus.Initiated;
     }
 
-    function fulfillWinnings(address token, uint256 amount) external onlyRole(SWAPPER_ROLE) {
+    function fulfillWinnings(address token, uint256 amount) external onlyRole(SWAPPER_ROLE) returns (uint256) {
         uint256 amount0Out;
         uint256 amount1Out;
         address otherToken;
@@ -125,6 +125,8 @@ contract Vault is IVault, AccessControl {
         uint256 swapAmount = balanceAfter - balanceBefore;
 
         IERC20(otherToken).transfer(msg.sender, swapAmount);
+
+        return swapAmount;
     }
 
     function addLiquidity(uint256 amount0, uint256 amount1) external {
