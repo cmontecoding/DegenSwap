@@ -50,6 +50,7 @@ contract DegenSwapHook is BaseHook, VRFConsumerBaseV2Plus {
     uint32 public randomnessNumWords;
     uint32 public randomnessCallbackGasLimit;
     uint16 public randomnessRequestConfirmations;
+    uint256 public lastRequestId; //todo make a better way for people to get their requestId
 
     Vault public vault;
 
@@ -61,15 +62,13 @@ contract DegenSwapHook is BaseHook, VRFConsumerBaseV2Plus {
         bytes32 _keyHash,
         uint32 _randomnessNumWords,
         uint32 _randomnessCallbackGasLimit,
-        uint16 _randomnessRequestConfirmations,
-        address _vault
+        uint16 _randomnessRequestConfirmations
     ) BaseHook(_manager) VRFConsumerBaseV2Plus(_vrfCoordinator) {
         s_subscriptionId = _subscriptionId;
         s_keyHash = _keyHash;
         randomnessNumWords = _randomnessNumWords;
         randomnessCallbackGasLimit = _randomnessCallbackGasLimit;
         randomnessRequestConfirmations = _randomnessRequestConfirmations;
-        vault = Vault(_vault);
     }
 
     // Set up hook permissions to return `true`
@@ -169,6 +168,13 @@ contract DegenSwapHook is BaseHook, VRFConsumerBaseV2Plus {
         return (this.afterSwap.selector, hookDeltaUnspecified);
     }
 
+    function setVault(address _vault) public {
+        if (address(vault) != address(0)) {
+            revert("DegenSwapHook: vault already set");
+        }
+        vault = Vault(_vault);
+    }
+
     /**
      * @notice fulfillRandomWords handles the VRF V2 wrapper response.
      *
@@ -209,6 +215,7 @@ contract DegenSwapHook is BaseHook, VRFConsumerBaseV2Plus {
                 )
             })
         );
+        lastRequestId = requestId;
     }
 
     function claim(uint256 _requestId) public {

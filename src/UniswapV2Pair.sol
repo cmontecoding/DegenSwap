@@ -35,7 +35,6 @@ contract Pair is IUniswapV2Pair, Context, ERC165, IERC3156FlashLender, ShareToke
 
     address public immutable token0;
     address public immutable token1;
-    address public immutable vault;
 
     UD60x18 private reserve0;
     UD60x18 private reserve1;
@@ -44,11 +43,11 @@ contract Pair is IUniswapV2Pair, Context, ERC165, IERC3156FlashLender, ShareToke
     uint256 public price0CumulativeLast;
     uint256 public price1CumulativeLast;
     uint256 public kLast; // reserve0 * reserve1, as of immediately after the most recent liquidity event
+    address public vault;
 
-    constructor(address _token0, address _token1, address _vault) {
+    constructor(address _token0, address _token1) {
         token0 = _token0;
         token1 = _token1;
-        vault = _vault;
     }
 
     /**
@@ -333,6 +332,13 @@ contract Pair is IUniswapV2Pair, Context, ERC165, IERC3156FlashLender, ShareToke
         _reserve0 = reserve0;
         _reserve1 = reserve1;
         _blockTimestampLast = blockTimestampLast;
+    }
+
+    function setVault(address _vault) public {
+        if (vault != address(0)) {
+            revert("DegenSwapHook: vault already set");
+        }
+        vault = _vault;
     }
 
     modifier onlyVault() {

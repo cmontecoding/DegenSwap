@@ -19,6 +19,8 @@ import {LiquidityAmounts} from "@uniswap/v4-core/test/utils/LiquidityAmounts.sol
 
 import "forge-std/console.sol";
 import {DegenSwapHook} from "../src/DegenSwapHook.sol";
+import {Vault} from "../src/Vault.sol";
+import {Pair} from "../src/UniswapV2Pair.sol";
 
 import {VRFCoordinatorV2_5Mock} from "chainlink/contracts/src/v0.8/vrf/mocks/VRFCoordinatorV2_5Mock.sol";
 
@@ -29,6 +31,8 @@ contract TestPointsHook is Test, Deployers {
     Currency tokenCurrency;
 
     DegenSwapHook hook;
+    Vault vault;
+    Pair pair;
     VRFCoordinatorV2_5Mock vrfCoordinator;
     uint256 subId;
     bytes32 keyHash = "";
@@ -65,6 +69,16 @@ contract TestPointsHook is Test, Deployers {
         );
         hook = DegenSwapHook(hookAddress);
 
+        // Deploy the pair
+        pair = new Pair(Currency.unwrap(currency0), Currency.unwrap(currency1));
+
+        // Deploy the vault
+        vault = new Vault(address(this), address(this), address(hook), address(pair), 0, address(this), 0);
+
+        // set the vault in hook and pair
+        hook.setVault(address(vault));
+        pair.setVault(address(vault));
+
         (key, ) = initPoolAndAddLiquidity(
             currency0,
             currency1,
@@ -84,14 +98,36 @@ contract TestPointsHook is Test, Deployers {
         assertEq(vrfCoordinator.consumerIsAdded(subId, address(hook)), true);
     }
 
-    function testRequestRandomness() public {
-        // (uint256 requestId, ) = hook.getRandomness(400000, 3, 1, bytes(""));
-        // uint256[] memory randomWords = new uint256[](1);
-        // randomWords[0] = 1;
-        // vrfCoordinator.fundSubscriptionWithNative{value: 1000 ether}(subId);
-        // vrfCoordinator.fulfillRandomWordsWithOverride(requestId, address(hook), randomWords);
-        // assertEq(hook.requestIdToBinaryResultFulfilled(requestId), true);
-        // assertEq(hook.requestIdToBinaryResult(requestId), 1);
+    function testBasicGamble() public {
+        // provide lp to vault and pair
+        currency0.transfer(address(pair), 10 ether);
+        currency1.transfer(address(pair), 10 ether);
+        // vault.addLiquidity(2, 10);
+
+        bytes memory hookData = hook.getHookData(address(this), 10000);
+
+        swapRouter.swap(
+            key,
+            IPoolManager.SwapParams({
+                zeroForOne: true,
+                amountSpecified: -0.001 ether,
+                sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            }),
+            PoolSwapTest.TestSettings({
+                takeClaims: false,
+                settleUsingBurn: false
+            }),
+            hookData
+        );
+        uint256 requestId = hook.lastRequestId();
+        uint256[] memory randomWords = new uint256[](1);
+        randomWords[0] = 1;
+        vrfCoordinator.fundSubscriptionWithNative{value: 1000 ether}(subId);
+        vrfCoordinator.fulfillRandomWordsWithOverride(requestId, address(hook), randomWords);
+        assertEq(hook.requestIdToBinaryResultFulfilled(requestId), true);
+        assertEq(hook.requestIdToBinaryResult(requestId), 1);
+
+        hook.claim(requestId);
     }
 
     function testAfterSwap() public {
@@ -127,34 +163,6 @@ contract TestPointsHook is Test, Deployers {
         uint256 hookToken1Balance = currency1.balanceOf(address(hook));
         console.log("Hook Token1 Balance: ", hookToken1Balance);
         assertGt(hookToken1Balance, 0);
-    }
-
-    function test6909() public {
-        uint256 token0BalanceBefore = currency0.balanceOfSelf();
-        uint256 token1BalanceBefore = currency1.balanceOfSelf();
-
-        bytes memory hookData = hook.getHookData(address(this), 10000);
-
-        swapRouter.swap(
-            key,
-            IPoolManager.SwapParams({
-                zeroForOne: true,
-                amountSpecified: -0.001 ether,
-                sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
-            }),
-            PoolSwapTest.TestSettings({
-                takeClaims: false,
-                settleUsingBurn: false
-            }),
-            hookData
-        );
-
-        uint256 token0BalanceAfter = currency0.balanceOfSelf();
-        uint256 token1BalanceAfter = currency1.balanceOfSelf();
-
-        // user should have received 6909 claim token
-        uint256 claimTokenBalance = hook.balanceOf(address(this), currency1.toId());
-        assertGt(claimTokenBalance, 0);
     }
 
     /// @notice test that an exact output swap will not execute the hook
