@@ -257,7 +257,10 @@ contract DegenSwapHook is BaseHook, VRFConsumerBaseV2Plus {
         } else if (result == 1) {
             /// @dev user won, transfer their winnings to them
             uint256 winnings = outputAmount * gamblingPercentage / 10000;
+            uint256 hookBalanceBefore = CurrencyLibrary.balanceOf(currency, address(this));
             uint256 winningsWithSlippage = vault.fulfillWinnings(Currency.unwrap(currency), winnings);
+            uint256 hookBalanceAfter = CurrencyLibrary.balanceOf(currency, address(this));
+            require(hookBalanceAfter > hookBalanceBefore, "DegenSwapHook: hook balance did not increase after fulfilling winnings");
             CurrencyLibrary.transfer(currency, better, outputAmount + winningsWithSlippage);
         }
         requestIdToWager[_requestId].claimed = true;

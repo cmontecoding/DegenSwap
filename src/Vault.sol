@@ -39,6 +39,8 @@ contract Vault is IVault, AccessControl {
 
     mapping(address user => RequestStatus status) public withdrawalRequest;
 
+    event FulfilledWinnings(address indexed user, address indexed token, uint256 amount, uint256 swapAmount);
+
     IUniswapV2Pair public immutable pair;
     uint256 public fee; // in `BPS`
     address public feeAddress;
@@ -113,16 +115,16 @@ contract Vault is IVault, AccessControl {
         address token1 = pair.token1();
 
         (UD60x18 _reserve0, UD60x18 _reserve1,) = pair.getReserves();
-        token == token0
+        token == token1
             ? (reserveIn = _reserve0.unwrap(), reserveOut = _reserve1.unwrap())
             : (reserveIn = _reserve1.unwrap(), reserveOut = _reserve0.unwrap());
         uint256 amountOut = pair.getAmountOut(amount, reserveIn, reserveOut);
 
-        token == token0
+        token == token1
             ? (otherToken = token1, amount0Out = 0, amount1Out = amountOut)
             : (otherToken = token0, amount0Out = amountOut, amount1Out = 0);
 
-        if (token == token0) {
+        if (token == token1) {
             IERC20(token0).transfer(address(pair), amount);
         } else {
             IERC20(token1).transfer(address(pair), amount);
@@ -136,6 +138,10 @@ contract Vault is IVault, AccessControl {
         uint256 swapAmount = balanceAfter - balanceBefore;
 
         IERC20(otherToken).transfer(msg.sender, swapAmount);
+        // sanity check
+        //require(otherToken == token, "the token sent to the hook must be the same as requested");
+        //todo
+        //emit FulfilledWinnings(msg.sender, otherToken, amount, swapAmount);
 
         return swapAmount;
     }
