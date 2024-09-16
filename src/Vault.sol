@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {UD60x18, ud} from "lib/prb-math/src/UD60x18.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
@@ -104,14 +105,18 @@ contract Vault is IVault, AccessControl {
     function fulfillWinnings(address token, uint256 amount) external onlyRole(SWAPPER_ROLE) {
         uint256 amount0Out;
         uint256 amount1Out;
+        uint256 reserveIn;
+        uint256 reserveOut;
         address otherToken;
 
         address token0 = pair.token0();
         address token1 = pair.token1();
 
-        uint256 k = pair.kLast();
-        uint256 denominator = amount.mulDiv(1e18, uint256(1e18 + 1e18 / 100));
-        uint256 amountOut = k / denominator;
+        (UD60x18 _reserve0, UD60x18 _reserve1,) = pair.getReserves();
+        token == token0
+            ? (reserveIn = _reserve0.unwrap(), reserveOut = _reserve1.unwrap())
+            : (reserveIn = _reserve1.unwrap(), reserveOut = _reserve0.unwrap());
+        uint256 amountOut = pair.getAmountOut(amount, reserveIn, reserveOut);
 
         token == token0
             ? (otherToken = token1, amount0Out = 0, amount0Out = amountOut)
