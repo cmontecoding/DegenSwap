@@ -148,9 +148,9 @@ contract TestPointsHook is Test, Deployers {
         assertEq(token1BalanceAfter, token1BalanceBefore);
 
         // Hook should have received the output token
-        uint256 hookToken1Balance = currency1.balanceOf(address(hook));
-        console.log("Hook Token1 Balance After Swap: ", hookToken1Balance);
-        assertGt(hookToken1Balance, 0);
+        uint256 hookToken1BalanceAfterSwap = currency1.balanceOf(address(hook));
+        console.log("Hook Token1 Balance After Swap: ", hookToken1BalanceAfterSwap);
+        assertGt(hookToken1BalanceAfterSwap, 0);
 
         hook.claim(requestId);
 
@@ -171,6 +171,84 @@ contract TestPointsHook is Test, Deployers {
         console.log("Token0 Better Spent On Swap Input: ", changeInBettersToken0);
         console.log("Token1 Better Received After Claim: ", changeInBettersToken1);
         console.log("Amount Lost to Slippage (and 1 percent fees): ", .002 ether - changeInBettersToken1);
+    }
+
+     function testBetZeroForOneLoss() public {
+        // provide lp to vault and pair
+        address currency0Address = Currency.unwrap(currency0);
+        address currency1Address = Currency.unwrap(currency1);
+        console.log("Currency0 Address: ", currency0Address);
+        console.log("Currency1 Address: ", currency1Address);
+        MockERC20(currency0Address).approve(address(vault), .1 ether);
+        MockERC20(currency1Address).approve(address(vault), .1 ether);
+        vault.addLiquidity(.1 ether, .1 ether);
+
+        uint256 token0BalanceBefore = currency0.balanceOfSelf();
+        uint256 token1BalanceBefore = currency1.balanceOfSelf();
+
+        bytes memory hookData = hook.getHookData(address(this), 10000);
+
+        swapRouter.swap(
+            key,
+            IPoolManager.SwapParams({
+                zeroForOne: true,
+                amountSpecified: -0.001 ether,
+                sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            }),
+            PoolSwapTest.TestSettings({
+                takeClaims: false,
+                settleUsingBurn: false
+            }),
+            hookData
+        );
+
+        uint256 token0BalanceAfter = currency0.balanceOfSelf();
+        uint256 token1BalanceAfter = currency1.balanceOfSelf();
+
+        uint256 requestId = hook.lastRequestId();
+        uint256[] memory randomWords = new uint256[](1);
+        randomWords[0] = 0;
+        vrfCoordinator.fundSubscriptionWithNative{value: 1000 ether}(subId);
+        vrfCoordinator.fulfillRandomWordsWithOverride(requestId, address(hook), randomWords);
+        assertEq(hook.requestIdToBinaryResultFulfilled(requestId), true);
+        assertEq(hook.requestIdToBinaryResult(requestId), 0);
+
+        // Input token has been deducted
+        assertEq(token0BalanceAfter, token0BalanceBefore - 0.001 ether);
+
+        // Didn't get output tokens back to user
+        assertEq(token1BalanceAfter, token1BalanceBefore);
+
+        // Hook should have received the output token
+        uint256 hookToken1BalanceAfterSwap = currency1.balanceOf(address(hook));
+        console.log("Hook Token1 Balance After Swap: ", hookToken1BalanceAfterSwap);
+        assertGt(hookToken1BalanceAfterSwap, 0);
+
+        uint256 vaultToken1BalanceBeforeClaim = currency1.balanceOf(address(vault));
+
+        hook.claim(requestId);
+
+        uint256 token0BalanceFinal = currency0.balanceOfSelf();
+        uint256 token1BalanceFinal = currency1.balanceOfSelf();
+
+        // user should have less token0 because of their swap input
+        assertEq(token0BalanceFinal, token0BalanceBefore - .001 ether);
+
+        // user should have no more of the output token than they had before
+        assertEq(token1BalanceFinal, token1BalanceBefore);
+
+        // vault should have the output token
+        uint256 vaultToken1BalanceFinal = currency1.balanceOf(address(vault));
+        assertEq(vaultToken1BalanceFinal - vaultToken1BalanceBeforeClaim, hookToken1BalanceAfterSwap);
+
+        uint256 changeInBettersToken0 = token0BalanceBefore - token0BalanceFinal;
+        uint256 changeInBettersToken1 = token1BalanceFinal - token1BalanceBefore;
+        console.log("");
+        console.log("----------------------------------");
+        console.log("Better Info Below");
+        console.log("Token0 Better Spent On Swap Input: ", changeInBettersToken0);
+        console.log("Token1 Better Received After Claim: ", changeInBettersToken1);
+        console.log("Amount Sent To Vault (swap output): ", hookToken1BalanceAfterSwap);
     }
 
     function testBetOneForZeroWin() public {
@@ -280,9 +358,9 @@ contract TestPointsHook is Test, Deployers {
         assertEq(token1BalanceAfter, token1BalanceBefore);
 
         // Hook should have received the output token
-        uint256 hookToken1Balance = currency1.balanceOf(address(hook));
-        console.log("Hook Token1 Balance: ", hookToken1Balance);
-        assertGt(hookToken1Balance, 0);
+        uint256 hookToken1BalanceAfterSwap = currency1.balanceOf(address(hook));
+        console.log("Hook Token1 Balance After Swap: ", hookToken1BalanceAfterSwap);
+        assertGt(hookToken1BalanceAfterSwap, 0);
     }
 
     /// @notice test that an exact output swap will not execute the hook
