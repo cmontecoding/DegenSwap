@@ -14,6 +14,8 @@ import {UD60x18, ud, MAX_WHOLE_UD60x18} from "lib/prb-math/src/UD60x18.sol";
 import {IUniswapV2Pair} from "./interfaces/IUniswapV2Pair.sol";
 import {ShareToken} from "./ShareToken.sol";
 
+contract BurnAddress {}
+
 contract Pair is IUniswapV2Pair, Context, ERC165, IERC3156FlashLender, ShareToken, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -129,7 +131,8 @@ contract Pair is IUniswapV2Pair, Context, ERC165, IERC3156FlashLender, ShareToke
         uint256 _totalSupply = totalSupply();
         if (_totalSupply == 0) {
             liquidity = Math.sqrt(amount0 * amount1) - MINIMUM_LIQUIDITY;
-            _mint(address(0), MINIMUM_LIQUIDITY);
+            BurnAddress burnAddress = new BurnAddress();
+            _mint(address(burnAddress), MINIMUM_LIQUIDITY);
         } else {
             liquidity =
                 Math.min((amount0 * _totalSupply) / _reserve0.unwrap(), (amount1 * _totalSupply) / _reserve1.unwrap());
