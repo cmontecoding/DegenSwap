@@ -10,8 +10,6 @@ import {AccessControl} from "lib/openzeppelin-contracts/contracts/access/AccessC
 import {IVault} from "../src/interfaces/IVault.sol";
 import {IUniswapV2Pair} from "../src/interfaces/IUniswapV2Pair.sol";
 
-import {console} from "forge-std/console.sol";
-
 enum RequestStatus {
     None,
     Initiated,
@@ -124,25 +122,6 @@ contract Vault is IVault, AccessControl {
             ? (otherToken = token1, amount0Out = 0, amount1Out = amountOut)
             : (otherToken = token0, amount0Out = amountOut, amount1Out = 0);
 
-        console.logUint(amount);
-        console.logUint(reserveIn);
-        console.logUint(reserveOut);
-        console.logUint(amountOut);
-        console.logAddress(token);
-        console.logAddress(otherToken);
-        console.logUint(amount0Out);
-        console.logUint(amount1Out);
-
-        // if (token == token0) {
-        //     otherToken = token1;
-        //     amount0Out = amount;
-        //     amount1Out = amountOut;
-        // } else {
-        //     otherToken = token0;
-        //     amount0Out = amountOut;
-        //     amount1Out = amount;
-        // }
-
         if (token == token0) {
             IERC20(token0).transfer(address(pair), amount);
         } else {
@@ -155,8 +134,6 @@ contract Vault is IVault, AccessControl {
 
         uint256 balanceAfter = IERC20(otherToken).balanceOf(address(this));
         uint256 swapAmount = balanceAfter - balanceBefore;
-
-        // console.logUint(swapAmount);
 
         IERC20(otherToken).transfer(msg.sender, swapAmount);
 
