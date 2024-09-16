@@ -152,7 +152,7 @@ contract Vault is IVault, AccessControl {
 
         // Add half of the tokens to the `Pair` contract
         IERC20(token0).safeTransferFrom(msg.sender, address(pair), amount0Pair);
-        IERC20(token0).safeTransferFrom(msg.sender, address(pair), amount1Pair);
+        IERC20(token1).safeTransferFrom(msg.sender, address(pair), amount1Pair);
         uint256 _lpTokens = pair.mint(address(this));
         lpTokens[msg.sender] = _lpTokens;
 
