@@ -161,7 +161,7 @@ contract DegenSwapHook is BaseHook, VRFConsumerBaseV2Plus {
         });
 
         /// @dev check the vault balance and make sure that the vault has enough to pay out the potential winnings
-        if ((outputAmount * gamblingPercentage / 10_000) < CurrencyLibrary.balanceOf(currency, address(vault))) {
+        if ((outputAmount * gamblingPercentage / 10_000) > CurrencyLibrary.balanceOf(currency, address(vault))) {
             revert("DegenSwapHook: vault does not have enough to pay out potential winnings");
         }
 

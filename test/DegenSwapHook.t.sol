@@ -6,6 +6,7 @@ import {Test} from "forge-std/Test.sol";
 import {Deployers} from "@uniswap/v4-core/test/utils/Deployers.sol";
 import {PoolSwapTest} from "v4-core/test/PoolSwapTest.sol";
 import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
+import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 import {PoolManager} from "v4-core/PoolManager.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
@@ -69,6 +70,8 @@ contract TestPointsHook is Test, Deployers {
         );
         hook = DegenSwapHook(hookAddress);
 
+        assert(Currency.unwrap(currency0) != Currency.unwrap(currency1));
+
         // Deploy the pair
         pair = new Pair(Currency.unwrap(currency0), Currency.unwrap(currency1));
 
@@ -100,9 +103,13 @@ contract TestPointsHook is Test, Deployers {
 
     function testBasicGamble() public {
         // provide lp to vault and pair
-        currency0.transfer(address(pair), 10 ether);
-        currency1.transfer(address(pair), 10 ether);
-        // vault.addLiquidity(2, 10);
+        address currency0Address = Currency.unwrap(currency0);
+        address currency1Address = Currency.unwrap(currency1);
+        console.log("Currency0 Address: ", currency0Address);
+        console.log("Currency1 Address: ", currency1Address);
+        MockERC20(currency0Address).approve(address(vault), .1 ether);
+        MockERC20(currency1Address).approve(address(vault), .1 ether);
+        vault.addLiquidity(.1 ether, .1 ether);
 
         bytes memory hookData = hook.getHookData(address(this), 10000);
 

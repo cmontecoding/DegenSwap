@@ -118,9 +118,19 @@ contract Vault is IVault, AccessControl {
             : (reserveIn = _reserve1.unwrap(), reserveOut = _reserve0.unwrap());
         uint256 amountOut = pair.getAmountOut(amount, reserveIn, reserveOut);
 
-        token == token0
-            ? (otherToken = token1, amount0Out = 0, amount0Out = amountOut)
-            : (otherToken = token0, amount0Out = amountOut, amount0Out = 0);
+        // token == token0
+        //     ? (otherToken = token1, amount0Out = 0, amount0Out = amountOut)
+        //     : (otherToken = token0, amount0Out = amountOut, amount0Out = 0);
+
+        if (token == token0) {
+            otherToken = token1;
+            amount0Out = amount;
+            amount1Out = amountOut;
+        } else {
+            otherToken = token0;
+            amount0Out = amountOut;
+            amount1Out = amount;
+        }
 
         uint256 balanceBefore = IERC20(otherToken).balanceOf(address(this));
 
