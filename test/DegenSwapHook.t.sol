@@ -170,10 +170,87 @@ contract TestPointsHook is Test, Deployers {
         console.log("Better Info Below");
         console.log("Token0 Better Spent On Swap Input: ", changeInBettersToken0);
         console.log("Token1 Better Received After Claim: ", changeInBettersToken1);
-        console.log("Amount Lost to Slippage: ", .002 ether - changeInBettersToken1);
+        console.log("Amount Lost to Slippage (and 1 percent fees): ", .002 ether - changeInBettersToken1);
+    }
+
+    function testBetOneForZeroWin() public {
+        // provide lp to vault and pair
+        address currency0Address = Currency.unwrap(currency0);
+        address currency1Address = Currency.unwrap(currency1);
+        MockERC20(currency0Address).approve(address(vault), .1 ether);
+        MockERC20(currency1Address).approve(address(vault), .1 ether);
+        vault.addLiquidity(.1 ether, .1 ether);
+
+        uint256 token0BalanceBefore = currency0.balanceOfSelf();
+        uint256 token1BalanceBefore = currency1.balanceOfSelf();
+
+        bytes memory hookData = hook.getHookData(address(this), 10000);
+
+        swapRouter.swap(
+            key,
+            IPoolManager.SwapParams({
+                zeroForOne: false,
+                amountSpecified: -0.001 ether,
+                sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
+            }),
+            PoolSwapTest.TestSettings({
+                takeClaims: false,
+                settleUsingBurn: false
+            }),
+            hookData
+        );
+
+        uint256 token0BalanceAfter = currency0.balanceOfSelf();
+        uint256 token1BalanceAfter = currency1.balanceOfSelf();
+
+        uint256 requestId = hook.lastRequestId();
+        uint256[] memory randomWords = new uint256[](1);
+        randomWords[0] = 1;
+        vrfCoordinator.fundSubscriptionWithNative{value: 1000 ether}(subId);
+        vrfCoordinator.fulfillRandomWordsWithOverride(requestId, address(hook), randomWords);
+        assertEq(hook.requestIdToBinaryResultFulfilled(requestId), true);
+        assertEq(hook.requestIdToBinaryResult(requestId), 1);
+
+        // Input token has been deducted
+        assertEq(token1BalanceAfter, token1BalanceBefore - 0.001 ether);
+
+        // Didn't get output tokens back to user
+        assertEq(token0BalanceAfter, token0BalanceBefore);
+
+        // Hook should have received the output token
+        uint256 hookToken0Balance = currency0.balanceOf(address(hook));
+        console.log("Hook Token0 Balance After Swap: ", hookToken0Balance);
+        assertGt(hookToken0Balance, 0);
+
+        hook.claim(requestId);
+
+        uint256 token1BalanceFinal = currency1.balanceOfSelf();
+        uint256 token0BalanceFinal = currency0.balanceOfSelf();
+
+        // user should have less token1 because of their swap input
+        assertEq(token1BalanceFinal, token1BalanceBefore - .001 ether);
+
+        // user should have almost double their output token
+        assertGt(token0BalanceFinal, token0BalanceBefore + .0019 ether);
+
+        uint256 changeInBettersToken1 = token1BalanceBefore - token1BalanceFinal;
+        uint256 changeInBettersToken0 = token0BalanceFinal - token0BalanceBefore;
+        console.log("");
+        console.log("----------------------------------");
+        console.log("Better Info Below");
+        console.log("Token1 Better Spent On Swap Input: ", changeInBettersToken1);
+        console.log("Token0 Better Received After Claim: ", changeInBettersToken0);
+        console.log("Amount Lost to Slippage (and 1 percent fees): ", .002 ether - changeInBettersToken0);
     }
 
     function testAfterSwap() public {
+        // provide lp to vault and pair
+        address currency0Address = Currency.unwrap(currency0);
+        address currency1Address = Currency.unwrap(currency1);
+        MockERC20(currency0Address).approve(address(vault), .1 ether);
+        MockERC20(currency1Address).approve(address(vault), .1 ether);
+        vault.addLiquidity(.1 ether, .1 ether);
+
         uint256 token0BalanceBefore = currency0.balanceOfSelf();
         uint256 token1BalanceBefore = currency1.balanceOfSelf();
 
