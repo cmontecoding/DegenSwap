@@ -31,4 +31,8 @@ contract ShareToken is Ownable, ERC20Permit {
         _burn(from, amount);
         emit ShareTokenBurned(from, amount);
     }
+
+    function _mint(address account, uint256 value) internal override {
+        _update(address(0), account, value);
+    }
 }
