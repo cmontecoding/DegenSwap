@@ -35,7 +35,6 @@ contract Pair is IUniswapV2Pair, Context, ERC165, IERC3156FlashLender, ShareToke
 
     address public immutable token0;
     address public immutable token1;
-    address public vault;
 
     UD60x18 private reserve0;
     UD60x18 private reserve1;
@@ -44,6 +43,7 @@ contract Pair is IUniswapV2Pair, Context, ERC165, IERC3156FlashLender, ShareToke
     uint256 public price0CumulativeLast;
     uint256 public price1CumulativeLast;
     uint256 public kLast; // reserve0 * reserve1, as of immediately after the most recent liquidity event
+    address public vault;
 
     constructor(address _token0, address _token1) {
         token0 = _token0;
@@ -339,20 +339,6 @@ contract Pair is IUniswapV2Pair, Context, ERC165, IERC3156FlashLender, ShareToke
             revert("DegenSwapHook: vault already set");
         }
         vault = _vault;
-    }
-
-    // given an input amount of an asset and pair reserves, returns the maximum output amount of the other asset
-    function getAmountOut(uint256 amountIn, uint256 reserveIn, uint256 reserveOut)
-        public
-        pure
-        returns (uint256 amountOut)
-    {
-        require(amountIn > 0, "UniswapV2Library: INSUFFICIENT_INPUT_AMOUNT");
-        require(reserveIn > 0 && reserveOut > 0, "UniswapV2Library: INSUFFICIENT_LIQUIDITY");
-        uint256 amountInWithFee = amountIn * 990;
-        uint256 numerator = amountInWithFee * reserveOut;
-        uint256 denominator = reserveIn * 1000 + amountInWithFee;
-        amountOut = numerator / denominator;
     }
 
     modifier onlyVault() {
